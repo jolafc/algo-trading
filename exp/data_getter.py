@@ -39,7 +39,7 @@ def av_query(symbol):
     try:
         price_df = pd.read_csv(file, index_col=0, parse_dates=['timestamp'])
     except ValueError:
-        print(f'ERROR - Querying data for {symbol} did not contain a valid DF.')
+        print(f'ERROR - Querying data for {symbol} did not contain a valid DF. Instead found:\n{response.text}')
     run_time = timer() - run_time
 
     return price_df, run_time
@@ -60,10 +60,11 @@ def get_universe_prices(symbols, prices={}, save_file=None, save_frequency=QPS):
     for i, symbol in enumerate(missing_symbols):
         if i % QPM == 0 and i > 0:
             wait_time_left = WAIT_TIME - tot_time
-            print(f'API quota reached, waiting {wait_time_left:.2f} s...')
-            sys.stdout.flush()
-            time.sleep(wait_time_left)
             tot_time = 0.
+            if wait_time_left > 0:
+                print(f'API quota reached, waiting {wait_time_left:.2f} s...')
+                sys.stdout.flush()
+                time.sleep(wait_time_left)
 
         updated_prices[symbol], run_time = av_query(symbol=symbol)
         print(f'{i:03d} - Queried data for {symbol}, time={run_time:.2f} s.')
