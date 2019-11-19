@@ -17,7 +17,8 @@ pd.set_option('display.width', 160)
 API_URL = "https://www.alphavantage.co/query"
 API_KEY = os.environ['AV_KEY']
 WAIT_TIME = 61.
-QPM = 5
+QPM = int(os.environ['AV_RQM'])
+QPS = 10
 
 AV_QUERY_DATA = {
     "function": "TIME_SERIES_DAILY_ADJUSTED",
@@ -51,7 +52,7 @@ def get_universe_symbols(universe_csv=CONST_CSV, symbols_column='Symbol'):
     return symbols
 
 
-def get_universe_prices(symbols, prices={}):
+def get_universe_prices(symbols, prices={}, save_file=None, save_frequency=QPS):
     updated_prices = deepcopy(prices)
     missing_symbols = set(symbols).difference(set(updated_prices.keys()))
     tot_time = 0.
@@ -69,6 +70,10 @@ def get_universe_prices(symbols, prices={}):
 
         sys.stdout.flush()
         tot_time += run_time
+
+        if save_file is not None and i % save_frequency == 0 and i > 0:
+            save_prices_dict(updated_prices, pkl_file=save_file)
+            print(f'{i:03d} - Saved data to file={save_file}')
 
     return updated_prices
 
@@ -88,12 +93,12 @@ def load_prices_dict(pkl_file=SP500_PKL):
     return prices
 
 
-def get_sp500_pkl(update=False):
+def get_sp500_pkl(update=True):
     symbols = get_universe_symbols(universe_csv=CONST_CSV)
-    prices = {} if update else load_prices_dict(pkl_file=SP500_PKL)
-    updated_prices = get_universe_prices(symbols, prices=prices)
+    prices = {} if not update else load_prices_dict(pkl_file=SP500_PKL)
+    updated_prices = get_universe_prices(symbols, prices=prices, save_file=SP500_PKL, save_frequency=QPS)
     save_prices_dict(updated_prices)
 
 
 if __name__ == '__main__':
-    get_sp500_pkl()
+    get_sp500_pkl(update=True)
