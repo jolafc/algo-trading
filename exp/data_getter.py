@@ -84,7 +84,7 @@ def save_prices_dict(prices, pkl_file=SP500_PKL):
         pickle.dump(prices, file)
 
 
-def load_prices_dict(pkl_file=SP500_PKL):
+def load_pickled_dict(pkl_file=SP500_PKL):
     if os.path.isfile(pkl_file):
         with open(pkl_file, 'rb') as file:
             prices = pickle.load(file)
@@ -96,7 +96,7 @@ def load_prices_dict(pkl_file=SP500_PKL):
 
 def get_sp500_pkl(update=True):
     symbols = get_universe_symbols(universe_csv=CONST_CSV)
-    prices = {} if not update else load_prices_dict(pkl_file=SP500_PKL)
+    prices = {} if not update else load_pickled_dict(pkl_file=SP500_PKL)
     updated_prices = get_universe_prices(symbols, prices=prices, save_file=SP500_PKL, save_frequency=QPS)
     save_prices_dict(updated_prices)
 
