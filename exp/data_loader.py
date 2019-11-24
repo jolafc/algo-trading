@@ -1,6 +1,7 @@
 import os
 from timeit import default_timer as timer
 
+import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 
@@ -27,6 +28,7 @@ TRADES_COLUMNS = POSITIONS_COLUMNS + TRADES_EXTRA_COLUMNS + ['fees', 'P&L']
 ### TODO: Need to (re)-implement the RSI/EMA indicators.
 ### TODO: Forward pad: limit the number of padded values
 ### TODO: The price for the execution is currently the price for the decision making; maybe the next day open instead?
+### TODO: Ticker changes, merger, acquisitions, and bankrupcies: currently selling at the buy price, to prevent automl to pick up on those errors.
 
 def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_idx=None, debug=False, impute=None):
     prices_dict_clean = {k: v for k, v in prices_dict.items() if v is not None}
@@ -90,6 +92,14 @@ def get_p_and_l(row):
     price_sell = row['price_sell']
     p_and_l = position * (price_sell - price_buy) - fees
     return p_and_l
+
+def get_balance(start_balance, trades_df, positions_df):
+    p_and_l = trades_df['P&L'].sum()
+    fees = positions_df['fees_buy'].sum()
+    invested = (positions_df['position'] * positions_df['price_buy']).sum()
+    balance = start_balance + p_and_l - invested - fees
+
+    return balance
 
 
 if __name__ == '__main__':
@@ -165,12 +175,16 @@ if __name__ == '__main__':
     # V 2 - Trades dataframe with positions df columns + sell price+date+fees.
     # V   - Sells are first removed from the positions and added to the trades. Then buys are added to positions.
     # V 3 - Then, add P&L.
-    # 4 - Balance: remove each transaction and its fees as they occur.
-    #   - And assert that the balance - P&L.sum() + positions bought == start_balance
+    # V 4 - Balance: remove each transaction and its fees as they occur.
+    # V   - And assert that the balance - P&L.sum() + positions bought == start_balance
+    # 5 - Unrealized P&L
+    # 6 - Benchmark against the S&P500 + plotting
+    # 7 - Metics: Annualized yield, sharpe, sortino, ...
 
     positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
+    errors_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
     trades_df = pd.DataFrame(columns=TRADES_COLUMNS)
-    pos_idx = 0
+    pos_counter = 0
     balance = start_balance
     for i, date in enumerate(dates):
         new_position = set(positions_list.iloc[i])
@@ -185,7 +199,13 @@ if __name__ == '__main__':
 
             price = adj_close_prices.loc[date, sell]
             position = positions_df.loc[pos_id, 'position']
+            if pd.isna(price):
+                price = positions_df.loc[pos_id, 'price_buy']
+                errors_df.loc[pos_id, POSITIONS_COLUMNS] = positions_df.loc[pos_id, POSITIONS_COLUMNS]
+                errors_df.loc[pos_id, 'date_sell'] = date
             fee = get_ib_fees(position=position, price=price)
+
+            balance += position * price - fee
 
             trades_df.loc[pos_id, POSITIONS_COLUMNS] = positions_df.loc[pos_id, POSITIONS_COLUMNS]
             positions_df = positions_df.drop(index=pos_id)
@@ -199,11 +219,22 @@ if __name__ == '__main__':
             price = adj_close_prices.loc[date, buy]
             position = notional // price
             fee = get_ib_fees(position=position, price=price)
-            positions_df.loc[pos_idx, POSITIONS_COLUMNS] = [date, buy, position, price, fee]
-            pos_idx += 1
 
-    print(positions_df)
-    print(trades_df)
+            balance += -position * price - fee
+
+            positions_df.loc[pos_counter, POSITIONS_COLUMNS] = [date, buy, position, price, fee]
+            pos_counter += 1
+
+    balance_theoric = get_balance(start_balance=start_balance, trades_df=trades_df, positions_df=positions_df)
+    assert np.isclose(balance, balance_theoric, atol=0.01), \
+        f'Backtesting end balance does not check out against transactions: ' \
+        f'end balance = {balance:.2f}$ VS theoric balance = {balance_theoric:.2f}$.'
+
+    print(f'\nTrades DataFrame:\n{trades_df}')
+    print(f'\nPositions DataFrame:\n{positions_df}')
+    print(f'\nErrors DataFrame:\n{errors_df}')
+    realized_pl = trades_df['P&L'].sum()
+    print(f'\nRealized P&L: {realized_pl:.2f}$')
 
     time = timer() - time
-    print(f'Loop time: {time} s.')
+    print(f'\nBacktesting time: {time} s.')
