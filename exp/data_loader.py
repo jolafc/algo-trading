@@ -93,6 +93,7 @@ def get_p_and_l(row):
     p_and_l = position * (price_sell - price_buy) - fees
     return p_and_l
 
+
 def get_balance(start_balance, trades_df, positions_df):
     p_and_l = trades_df['P&L'].sum()
     fees = positions_df['fees_buy'].sum()
@@ -100,6 +101,20 @@ def get_balance(start_balance, trades_df, positions_df):
     balance = start_balance + p_and_l - invested - fees
 
     return balance
+
+
+def get_total_unrealized_p_and_l(trades_df, positions_df, prices_series):
+    realized_pl = trades_df['P&L'].sum()
+
+    invested = (positions_df['position'] * positions_df['price_buy']).sum()
+    prices_current = prices_series[positions_df['ticker']]
+    value_current = (positions_df['position'] * prices_current).sum()
+    fees = positions_df['fees_buy'].sum()
+    unrealized_pl = value_current - invested - fees
+
+    p_and_l = realized_pl + unrealized_pl
+
+    return p_and_l
 
 
 if __name__ == '__main__':
@@ -177,13 +192,18 @@ if __name__ == '__main__':
     # V 3 - Then, add P&L.
     # V 4 - Balance: remove each transaction and its fees as they occur.
     # V   - And assert that the balance - P&L.sum() + positions bought == start_balance
-    # 5 - Unrealized P&L
+    # V 5 - Unrealized P&L
     # 6 - Benchmark against the S&P500 + plotting
-    # 7 - Metics: Annualized yield, sharpe, sortino, ...
+    # 7 - Metrics: Annualized yield, sharpe, sortino, ...
+    # 8 - Refactor the position getter into a strategy framework that
+    #   - takes start, end, lookback, strategy parameters, strategy data dict
+    #   - returns iterables of dates and positions on those dates.
+    # 9 - Refactor the backtesting loop into a class
 
     positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
     errors_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
     trades_df = pd.DataFrame(columns=TRADES_COLUMNS)
+    unrealized_pl = pd.Series(index=dates)
     pos_counter = 0
     balance = start_balance
     for i, date in enumerate(dates):
@@ -225,10 +245,20 @@ if __name__ == '__main__':
             positions_df.loc[pos_counter, POSITIONS_COLUMNS] = [date, buy, position, price, fee]
             pos_counter += 1
 
+        unrealized_pl[date] = get_total_unrealized_p_and_l(trades_df=trades_df, positions_df=positions_df, prices_series=adj_close_prices.loc[date])
+
     balance_theoric = get_balance(start_balance=start_balance, trades_df=trades_df, positions_df=positions_df)
     assert np.isclose(balance, balance_theoric, atol=0.01), \
         f'Backtesting end balance does not check out against transactions: ' \
         f'end balance = {balance:.2f}$ VS theoric balance = {balance_theoric:.2f}$.'
+
+    date = dates[-1]
+    prices_current = adj_close_prices.loc[date, positions_df['ticker']]
+    value_current = (positions_df['position'] * prices_current).sum()
+    balance_pl = start_balance + unrealized_pl[date] - value_current
+    assert np.isclose(balance, balance_pl, atol=0.01), \
+        f'Backtesting end balance does not check out against balance deduced from (last P&L - investments): ' \
+        f'end balance = {balance:.2f}$ VS P&L derived balance = {balance_pl:.2f}$.'
 
     print(f'\nTrades DataFrame:\n{trades_df}')
     print(f'\nPositions DataFrame:\n{positions_df}')
