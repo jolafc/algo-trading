@@ -83,6 +83,15 @@ def get_notional(balance, n_buys, price_min):
     return notional
 
 
+def get_p_and_l(row):
+    fees = row['fees']
+    position = row['position']
+    price_buy = row['price_buy']
+    price_sell = row['price_sell']
+    p_and_l = position * (price_sell - price_buy) - fees
+    return p_and_l
+
+
 if __name__ == '__main__':
     time = timer()
 
@@ -155,7 +164,7 @@ if __name__ == '__main__':
     # V 1 - Positions dataframe with buy price+date
     # V 2 - Trades dataframe with positions df columns + sell price+date+fees.
     # V   - Sells are first removed from the positions and added to the trades. Then buys are added to positions.
-    # 3 - Then, add P&L.
+    # V 3 - Then, add P&L.
     # 4 - Balance: remove each transaction and its fees as they occur.
     #   - And assert that the balance - P&L.sum() + positions bought == start_balance
 
@@ -179,8 +188,11 @@ if __name__ == '__main__':
             fee = get_ib_fees(position=position, price=price)
 
             trades_df.loc[pos_id, POSITIONS_COLUMNS] = positions_df.loc[pos_id, POSITIONS_COLUMNS]
-            trades_df.loc[pos_id, TRADES_EXTRA_COLUMNS] = [date, price, fee]
             positions_df = positions_df.drop(index=pos_id)
+
+            trades_df.loc[pos_id, TRADES_EXTRA_COLUMNS] = [date, price, fee]
+            trades_df.loc[pos_id, 'fees'] = trades_df.loc[pos_id, 'fees_buy'] + trades_df.loc[pos_id, 'fees_sell']
+            trades_df.loc[pos_id, 'P&L'] = get_p_and_l(row=trades_df.loc[pos_id])
 
         notional = get_notional(balance=balance, n_buys=len(buys), price_min=price_min)
         for buy in buys:
