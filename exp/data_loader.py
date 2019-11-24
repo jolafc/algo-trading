@@ -18,6 +18,8 @@ VOLUME_COLUMN = 'volume'
 DIVIDENT_COLUMN = 'dividend_amount'
 SPLIT_COLUMN = 'split_coefficient'
 
+POSITIONS_COLUMNS = ['date_buy', 'position', 'price_buy', 'fees_buy']  # PAR
+
 
 ### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
 ### TODO: Need to (re)-implement the RSI/EMA indicators.
@@ -55,8 +57,27 @@ def impute_time_series(df, method=None):
     return df
 
 
-# def backtesting(start_date, end_date, lookback, prices_dict):
-#     return None
+def get_ib_fees(position, price):
+    IB_FEE_PER_SHARE = 0.005
+    IB_MAX_FEE_PERCENT = 0.01
+    IB_MIN_FEE = 1.
+
+    fee_min = IB_MIN_FEE
+    fee_max = position * price * IB_MAX_FEE_PERCENT
+    fee = IB_FEE_PER_SHARE * position
+    fee = min(max(fee, fee_min), fee_max)
+
+    return fee
+
+
+def get_notional(balance, n_buys, price_min):
+    notional_max = balance / n_buys
+    position_max = notional_max / price_min
+    max_buy_fees = get_ib_fees(position=position_max, price=price_min)
+    budget_fees = n_buys * max_buy_fees
+    notional = (balance - budget_fees) / n_buys
+
+    return notional
 
 
 if __name__ == '__main__':
@@ -71,11 +92,12 @@ if __name__ == '__main__':
     sma_tol = 0.02  # PAR strategy
     volume_lookback = 20  # PAR strategy
     volume_threshold = 1e6  # PAR strategy
-    price_threshold = 1.  # PAR strategy
+    price_min = 1.  # PAR strategy
     rsi_lookback = 3  # PAR strategy
     rsi_threshold = 50.  # PAR strategy
     day_of_trade = 4  # PAR strategy - pandas DatetimeIndex.dayofweek value for Friday
     n_positions = 10  # PAR strategy
+    start_balance = 100000  # PAR strategy
 
     data_by_ticker = load_pickled_dict(pkl_file=pkl_file)
 
@@ -99,7 +121,7 @@ if __name__ == '__main__':
     volumes_masks = volumes_sma >= volume_threshold
 
     # 3 - Min price 1$
-    price_masks = adj_close_prices > price_threshold
+    price_masks = adj_close_prices > price_min
 
     # 4 - RSI(3) < 50
     prices_rsi = adj_close_prices.apply(lambda x: ta.momentum.rsi(x, n=rsi_lookback))
@@ -120,24 +142,35 @@ if __name__ == '__main__':
     triggers = day_of_week_triggers & backtesting_window_triggers
     dates = valid_dates[triggers]
 
-    positions = pd.Series(index=dates, name='positions')
+    positions_list = pd.Series(index=dates, name='positions')
     for date in dates:
         mask = masks.loc[date]
         performance = performances.loc[date]
-        positions[date] = performance[mask].sort_values(ascending=False)[:n_positions].index.tolist()
+        positions_list[date] = performance[mask].sort_values(ascending=False)[:n_positions].index.tolist()
 
-    buys = pd.Series(index=dates, name='buys')
-    sells = pd.Series(index=dates, name='sells')
-    buys.iloc[0] = set(positions.iloc[0])
-    sells.iloc[0] = set()
-    for i in range(1, dates.size):
-        new_position = set(positions.iloc[i])
-        old_position = set(positions.iloc[i-1])
-        buys.iloc[i] = new_position.difference(old_position)
-        sells.iloc[i] = old_position.difference(new_position)
+    # Backtesting loop.
+    # V 1 - Positions dataframe with buy price+date
+    # 2 - Trades dataframe with positions df columns + sell price+date.
+    #   - Sells are first removed from the positions and added to the trades. Then buys are added to positions.
+    # 3 - Then, add sell fees + total fees + P&L. Add buys fees to positions.
+    # 4 - Balance: remove each transaction and its fees as they occur.
 
-    for i in range(dates.size):
-        print(f'{dates[i].date()} - Positions: {positions.iloc[i]}, Buys: {buys.iloc[i]}, Sells: {sells.iloc[i]}')
+    positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
+    pos_idx = 0
+    balance = start_balance
+    for i, date in enumerate(dates):
+        new_position = set(positions_list.iloc[i])
+        old_position = set(positions_list.iloc[i - 1]) if i - 1 >= 0 else set()
+        buys = new_position.difference(old_position)
+        sells = old_position.difference(new_position)
+
+        notional = get_notional(balance=balance, n_buys=len(buys), price_min=price_min)
+        for buy in buys:
+            price = adj_close_prices.loc[date, buy]
+            position = notional // price
+            fee = get_ib_fees(position=position, price=price)
+            positions_df.loc[pos_idx, POSITIONS_COLUMNS] = [date, position, price, fee]
+            pos_idx += 1
 
     time = timer() - time
     print(f'Loop time: {time} s.')
