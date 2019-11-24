@@ -3,6 +3,7 @@ from timeit import default_timer as timer
 
 import numpy as np
 import pandas as pd
+import pandas.plotting
 from matplotlib import pyplot as plt
 
 import ta.momentum
@@ -22,6 +23,8 @@ SPLIT_COLUMN = 'split_coefficient'
 POSITIONS_COLUMNS = ['date_buy', 'ticker', 'position', 'price_buy', 'fees_buy']
 TRADES_EXTRA_COLUMNS = ['date_sell', 'price_sell', 'fees_sell']
 TRADES_COLUMNS = POSITIONS_COLUMNS + TRADES_EXTRA_COLUMNS + ['fees', 'P&L']
+
+BENCKMARK_TICKER = 'SPY'
 
 
 ### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
@@ -107,7 +110,7 @@ def get_total_unrealized_p_and_l(trades_df, positions_df, prices_series):
     realized_pl = trades_df['P&L'].sum()
 
     invested = (positions_df['position'] * positions_df['price_buy']).sum()
-    prices_current = prices_series[positions_df['ticker']]
+    prices_current = prices_series[positions_df['ticker']].values
     value_current = (positions_df['position'] * prices_current).sum()
     fees = positions_df['fees_buy'].sum()
     unrealized_pl = value_current - invested - fees
@@ -203,7 +206,7 @@ if __name__ == '__main__':
     positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
     errors_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
     trades_df = pd.DataFrame(columns=TRADES_COLUMNS)
-    unrealized_pl = pd.Series(index=dates)
+    unrealized_pl = pd.Series(index=dates, name=f'Unrealized P&L')
     pos_counter = 0
     balance = start_balance
     for i, date in enumerate(dates):
@@ -245,7 +248,8 @@ if __name__ == '__main__':
             positions_df.loc[pos_counter, POSITIONS_COLUMNS] = [date, buy, position, price, fee]
             pos_counter += 1
 
-        unrealized_pl[date] = get_total_unrealized_p_and_l(trades_df=trades_df, positions_df=positions_df, prices_series=adj_close_prices.loc[date])
+        unrealized_pl[date] = get_total_unrealized_p_and_l(trades_df=trades_df, positions_df=positions_df,
+                                                           prices_series=adj_close_prices.loc[date])
 
     balance_theoric = get_balance(start_balance=start_balance, trades_df=trades_df, positions_df=positions_df)
     assert np.isclose(balance, balance_theoric, atol=0.01), \
@@ -253,7 +257,7 @@ if __name__ == '__main__':
         f'end balance = {balance:.2f}$ VS theoric balance = {balance_theoric:.2f}$.'
 
     date = dates[-1]
-    prices_current = adj_close_prices.loc[date, positions_df['ticker']]
+    prices_current = adj_close_prices.loc[date, positions_df['ticker']].values
     value_current = (positions_df['position'] * prices_current).sum()
     balance_pl = start_balance + unrealized_pl[date] - value_current
     assert np.isclose(balance, balance_pl, atol=0.01), \
@@ -263,8 +267,24 @@ if __name__ == '__main__':
     print(f'\nTrades DataFrame:\n{trades_df}')
     print(f'\nPositions DataFrame:\n{positions_df}')
     print(f'\nErrors DataFrame:\n{errors_df}')
+    print(f'\nUnrealized P&L Series:\n{unrealized_pl}')
     realized_pl = trades_df['P&L'].sum()
     print(f'\nRealized P&L: {realized_pl:.2f}$')
+
+    benckmark_prices = adj_close_prices.loc[dates, BENCKMARK_TICKER]
+    benckmark_position = start_balance / benckmark_prices.iloc[0]
+    benckmark_fee = get_ib_fees(position=benckmark_position, price=benckmark_prices.iloc[0])
+    benckmark_pl = benckmark_position * benckmark_prices - start_balance - benckmark_fee
+
+    pd.plotting.register_matplotlib_converters()
+    plt.figure(figsize=(10, 5))
+    unrealized_pl.plot(style='.r')
+    benckmark_pl.plot(style='.b')
+    plt.title(f'Strategy performance')
+    plt.legend()
+    plotfile = os.path.join(DATA_DIR, f'unrealized_pl.{PLT_FILE_FORMAT}')
+    plt.savefig(plotfile)
+    print(f'\nPlotted unrealized P&L to file: {plotfile}')
 
     time = timer() - time
     print(f'\nBacktesting time: {time} s.')
