@@ -18,12 +18,15 @@ VOLUME_COLUMN = 'volume'
 DIVIDENT_COLUMN = 'dividend_amount'
 SPLIT_COLUMN = 'split_coefficient'
 
-POSITIONS_COLUMNS = ['date_buy', 'position', 'price_buy', 'fees_buy']  # PAR
+POSITIONS_COLUMNS = ['date_buy', 'ticker', 'position', 'price_buy', 'fees_buy']
+TRADES_EXTRA_COLUMNS = ['date_sell', 'price_sell', 'fees_sell']
+TRADES_COLUMNS = POSITIONS_COLUMNS + TRADES_EXTRA_COLUMNS + ['fees', 'P&L']
 
 
 ### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
 ### TODO: Need to (re)-implement the RSI/EMA indicators.
 ### TODO: Forward pad: limit the number of padded values
+### TODO: The price for the execution is currently the price for the decision making; maybe the next day open instead?
 
 def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_idx=None, debug=False, impute=None):
     prices_dict_clean = {k: v for k, v in prices_dict.items() if v is not None}
@@ -150,12 +153,14 @@ if __name__ == '__main__':
 
     # Backtesting loop.
     # V 1 - Positions dataframe with buy price+date
-    # 2 - Trades dataframe with positions df columns + sell price+date.
-    #   - Sells are first removed from the positions and added to the trades. Then buys are added to positions.
-    # 3 - Then, add sell fees + total fees + P&L. Add buys fees to positions.
+    # V 2 - Trades dataframe with positions df columns + sell price+date+fees.
+    # V   - Sells are first removed from the positions and added to the trades. Then buys are added to positions.
+    # 3 - Then, add P&L.
     # 4 - Balance: remove each transaction and its fees as they occur.
+    #   - And assert that the balance - P&L.sum() + positions bought == start_balance
 
     positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
+    trades_df = pd.DataFrame(columns=TRADES_COLUMNS)
     pos_idx = 0
     balance = start_balance
     for i, date in enumerate(dates):
@@ -164,13 +169,29 @@ if __name__ == '__main__':
         buys = new_position.difference(old_position)
         sells = old_position.difference(new_position)
 
+        for sell in sells:
+            mask = positions_df['ticker'] == sell
+            assert mask.sum() == 1, f'The number of current positions matching {sell} is {mask.sum()} but should be ==1'
+            pos_id = positions_df[mask].index[0]
+
+            price = adj_close_prices.loc[date, sell]
+            position = positions_df.loc[pos_id, 'position']
+            fee = get_ib_fees(position=position, price=price)
+
+            trades_df.loc[pos_id, POSITIONS_COLUMNS] = positions_df.loc[pos_id, POSITIONS_COLUMNS]
+            trades_df.loc[pos_id, TRADES_EXTRA_COLUMNS] = [date, price, fee]
+            positions_df = positions_df.drop(index=pos_id)
+
         notional = get_notional(balance=balance, n_buys=len(buys), price_min=price_min)
         for buy in buys:
             price = adj_close_prices.loc[date, buy]
             position = notional // price
             fee = get_ib_fees(position=position, price=price)
-            positions_df.loc[pos_idx, POSITIONS_COLUMNS] = [date, position, price, fee]
+            positions_df.loc[pos_idx, POSITIONS_COLUMNS] = [date, buy, position, price, fee]
             pos_idx += 1
+
+    print(positions_df)
+    print(trades_df)
 
     time = timer() - time
     print(f'Loop time: {time} s.')
