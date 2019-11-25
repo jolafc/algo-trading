@@ -127,16 +127,17 @@ def get_total_unrealized_p_and_l(trades_df, positions_df, prices_series):
     return p_and_l
 
 
-def get_annualized_yield(unrealized_pl, start_balance):
+def get_annualized_yield(unrealized_pl, start_balance=0.):
     dates = unrealized_pl.index
     backtesting_duration = (dates[-1] - dates[0]).days
+    start_value = start_balance + unrealized_pl.iloc[0]
     end_value = start_balance + unrealized_pl.iloc[-1]
-    annualized_yield = N_DAYS_IN_YEAR / backtesting_duration * np.log(end_value / start_balance)
+    annualized_yield = N_DAYS_IN_YEAR / backtesting_duration * np.log(end_value / start_value)
 
     return annualized_yield
 
 
-def get_sharpe_ratio(unrealized_pl, start_balance):
+def get_sharpe_ratio(unrealized_pl, start_balance=0.):
     normalized_returns = (unrealized_pl - unrealized_pl.shift(1)) / (unrealized_pl.shift(1) + start_balance)
 
     duration_in_years = (unrealized_pl.index[-1] - unrealized_pl.index[0]).days / N_DAYS_IN_YEAR
@@ -149,7 +150,7 @@ def get_sharpe_ratio(unrealized_pl, start_balance):
     return sharpe_ratio
 
 
-def get_sortino_ratio(unrealized_pl, start_balance):
+def get_sortino_ratio(unrealized_pl, start_balance=0.):
     normalized_returns = (unrealized_pl - unrealized_pl.shift(1)) / (unrealized_pl.shift(1) + start_balance)
 
     duration_in_years = (unrealized_pl.index[-1] - unrealized_pl.index[0]).days / N_DAYS_IN_YEAR
@@ -186,7 +187,7 @@ if __name__ == '__main__':
     day_of_trade = 4  # PAR strategy - pandas DatetimeIndex.dayofweek value for Friday
     n_positions = 10  # PAR strategy
     start_balance = 100000  # PAR strategy
-    REFERENCE_YIELD = 0.13496715
+    REFERENCE_YIELD = 0.13514657590506485
     REFERENCE_SHARPE = 0.8992035532340469
 
     data_by_ticker = load_pickled_dict(pkl_file=pkl_file)
@@ -331,22 +332,30 @@ if __name__ == '__main__':
     benckmark_fee = get_ib_fees(position=benckmark_position, price=benckmark_prices.iloc[0])
     benckmark_pl = benckmark_position * benckmark_prices - start_balance - benckmark_fee
 
+    annualized_yield = get_annualized_yield(unrealized_pl=unrealized_pl, start_balance=start_balance)
+    sharpe_ratio = get_sharpe_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
+    sortino_ratio = get_sortino_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
+    benchmark_annualized_yield = get_annualized_yield(unrealized_pl=benckmark_pl, start_balance=start_balance)
+    benchmark_sharpe_ratio = get_sharpe_ratio(unrealized_pl=benckmark_pl, start_balance=start_balance)
+    benchmark_sortino_ratio = get_sortino_ratio(unrealized_pl=benckmark_pl, start_balance=start_balance)
+    print(f'\nAnnualized yield = {100 * annualized_yield:.1f}%; benckmark = {100 * benchmark_annualized_yield:.1f}%')
+    print(f'Sharpe ratio: {sharpe_ratio:.2f}; benckmark = {benchmark_sharpe_ratio:.2f}')
+    print(f'Sortino ratio: {sortino_ratio:.2f}; benckmark = {benchmark_sortino_ratio:.2f}')
+
     pd.plotting.register_matplotlib_converters()
     plt.figure(figsize=(10, 5))
-    unrealized_pl.plot(style='.r')
-    benckmark_pl.plot(style='.b')
+    label = f'{unrealized_pl.name} - yield={100 * annualized_yield:.1f}%; sharpe={sharpe_ratio:.2f}; sortino={sortino_ratio:.2f}'
+    plt.plot(unrealized_pl, '--r', label=label)
+    benchmark_label = f'{benckmark_pl.name} - yield={100 * benchmark_annualized_yield:.1f}%; sharpe={benchmark_sharpe_ratio:.2f}; sortino={benchmark_sortino_ratio:.2f}'
+    plt.plot(benckmark_pl, '--b', label=benchmark_label)
+    xlim = plt.xlim()
+    plt.xlim(xlim)
+    plt.plot(xlim, [0.]*2, '--k')
     plt.title(f'Strategy performance')
     plt.legend()
     plotfile = os.path.join(DATA_DIR, f'unrealized_pl.{PLT_FILE_FORMAT}')
     plt.savefig(plotfile)
     print(f'\nPlotted unrealized P&L to file: {plotfile}')
-
-    annualized_yield = get_annualized_yield(unrealized_pl=unrealized_pl, start_balance=start_balance)
-    sharpe_ratio = get_sharpe_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
-    sortino_ratio = get_sortino_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
-    print(f'\nAnnualized yield: {100 * annualized_yield:.1f}%')
-    print(f'Sharpe ratio: {sharpe_ratio:.2f}')
-    print(f'Sortino ratio: {sortino_ratio:.2f}')
 
     assert np.isclose(annualized_yield, REFERENCE_YIELD, atol=1e-8), f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
     assert np.isclose(sharpe_ratio, REFERENCE_SHARPE, atol=1e-8), f'Sharpe ratio is {sharpe_ratio}  but should be {REFERENCE_SHARPE}'
