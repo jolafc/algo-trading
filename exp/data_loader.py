@@ -149,6 +149,23 @@ def get_sharpe_ratio(unrealized_pl, start_balance):
     return sharpe_ratio
 
 
+def get_sortino_ratio(unrealized_pl, start_balance):
+    normalized_returns = (unrealized_pl - unrealized_pl.shift(1)) / (unrealized_pl.shift(1) + start_balance)
+
+    duration_in_years = (unrealized_pl.index[-1] - unrealized_pl.index[0]).days / N_DAYS_IN_YEAR
+    mean_steps_per_year = unrealized_pl.size / duration_in_years
+
+    norm_returns_mean_annualized = normalized_returns.mean() * mean_steps_per_year
+
+    neg_returns_mask = normalized_returns < 0.
+    neg_returns_std = normalized_returns[neg_returns_mask].std()
+    norm_returns_std_annualized = neg_returns_std * np.sqrt(mean_steps_per_year) # Assuming a Weiner process / random walk; mean total distance = distance per step * sqrt(number of steps)
+
+    sharpe_ratio = norm_returns_mean_annualized / norm_returns_std_annualized
+
+    return sharpe_ratio
+
+
 if __name__ == '__main__':
     time = timer()
 
@@ -326,8 +343,10 @@ if __name__ == '__main__':
 
     annualized_yield = get_annualized_yield(unrealized_pl=unrealized_pl, start_balance=start_balance)
     sharpe_ratio = get_sharpe_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
+    sortino_ratio = get_sortino_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
     print(f'\nAnnualized yield: {100 * annualized_yield:.1f}%')
     print(f'Sharpe ratio: {sharpe_ratio:.2f}')
+    print(f'Sortino ratio: {sortino_ratio:.2f}')
 
     assert np.isclose(annualized_yield, REFERENCE_YIELD, atol=1e-8), f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
     assert np.isclose(sharpe_ratio, REFERENCE_SHARPE, atol=1e-8), f'Sharpe ratio is {sharpe_ratio}  but should be {REFERENCE_SHARPE}'
