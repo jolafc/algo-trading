@@ -25,6 +25,7 @@ TRADES_EXTRA_COLUMNS = ['date_sell', 'price_sell', 'fees_sell']
 TRADES_COLUMNS = POSITIONS_COLUMNS + TRADES_EXTRA_COLUMNS + ['fees', 'P&L']
 
 BENCKMARK_TICKER = 'SPY'
+N_DAYS_IN_YEAR = 365
 
 
 ### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
@@ -118,6 +119,22 @@ def get_total_unrealized_p_and_l(trades_df, positions_df, prices_series):
     p_and_l = realized_pl + unrealized_pl
 
     return p_and_l
+
+
+def get_annualized_yield(unrealized_pl, start_balance):
+    dates = unrealized_pl.index
+    backtesting_duration = (dates[-1] - dates[0]).days
+    end_value = start_balance + unrealized_pl.iloc[-1]
+    annualized_yield = N_DAYS_IN_YEAR / backtesting_duration * np.log(end_value / start_balance)
+
+    return annualized_yield
+
+
+def get_sharpe_ratio(unrealized_pl):
+    returns = unrealized_pl - unrealized_pl.shift(1)
+    sharpe_ratio = returns.mean() / returns.std()
+
+    return sharpe_ratio
 
 
 if __name__ == '__main__':
@@ -286,5 +303,10 @@ if __name__ == '__main__':
     plt.savefig(plotfile)
     print(f'\nPlotted unrealized P&L to file: {plotfile}')
 
+    annualized_yield = get_annualized_yield(unrealized_pl=unrealized_pl, start_balance=start_balance)
+    sharpe_ratio = get_sharpe_ratio(unrealized_pl=unrealized_pl)
+    print(f'\nAnnualized yield: {100 * annualized_yield:.1f}%')
+    print(f'Sharpe ratio: {sharpe_ratio:.2f}')
+
     time = timer() - time
-    print(f'\nBacktesting time: {time} s.')
+    print(f'\nBacktesting time: {time:.3f} s.')
