@@ -39,9 +39,14 @@ def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_i
 
     feature_df = [df[column].rename(k) for k, df in prices_dict_clean.items()]
     feature_df = pd.concat(feature_df, axis=1)
+
+    first_date = feature_df.index[0]
+    last_date = feature_df.index[-1]
+    n_tickers = len(feature_df.columns)
+    print(f'Loaded {column} for {n_tickers} tickers from {first_date.date()} to {last_date.date()}.')
+
     if start_idx is not None and end_idx is not None:
         feature_df = feature_df.iloc[start_idx:end_idx + 1, :]
-
     if debug:
         report_nans(feature_df, feature_name=column)
     if impute is not None:
@@ -80,6 +85,7 @@ def get_ib_fees(position, price):
 
 
 def get_notional(balance, n_buys, price_min):
+    n_buys = max(1, n_buys)
     notional_max = balance / n_buys
     position_max = notional_max / price_min
     max_buy_fees = get_ib_fees(position=position_max, price=price_min)
@@ -130,9 +136,15 @@ def get_annualized_yield(unrealized_pl, start_balance):
     return annualized_yield
 
 
-def get_sharpe_ratio(unrealized_pl):
-    returns = unrealized_pl - unrealized_pl.shift(1)
-    sharpe_ratio = returns.mean() / returns.std()
+def get_sharpe_ratio(unrealized_pl, start_balance):
+    normalized_returns = (unrealized_pl - unrealized_pl.shift(1)) / (unrealized_pl.shift(1) + start_balance)
+
+    duration_in_years = (unrealized_pl.index[-1] - unrealized_pl.index[0]).days / N_DAYS_IN_YEAR
+    mean_steps_per_year = unrealized_pl.size / duration_in_years
+
+    norm_returns_mean_annualized = normalized_returns.mean() * mean_steps_per_year
+    norm_returns_std_annualized = normalized_returns.std() * np.sqrt(mean_steps_per_year) # Assuming a Weiner process / random walk; mean total distance = distance per step * sqrt(number of steps)
+    sharpe_ratio = norm_returns_mean_annualized / norm_returns_std_annualized
 
     return sharpe_ratio
 
@@ -142,8 +154,10 @@ if __name__ == '__main__':
 
     pkl_file = SP500_PKL  # PAR data
 
-    start_date = pd.to_datetime('2019-01-31')  # PAR backtesting
-    end_date = pd.to_datetime('2019-10-31')  # PAR backtesting
+    start_date_requested = pd.to_datetime('2019-01-31')  # PAR backtesting
+    end_date_requested = pd.to_datetime('2019-10-31')  # PAR backtesting
+    # start_date_requested = pd.to_datetime('2000-11-19')  # PAR backtesting
+    # end_date_requested = pd.to_datetime('2019-11-22')  # PAR backtesting
     lookback = 200  # PAR backtesting
 
     sma_tol = 0.02  # PAR strategy
@@ -155,13 +169,20 @@ if __name__ == '__main__':
     day_of_trade = 4  # PAR strategy - pandas DatetimeIndex.dayofweek value for Friday
     n_positions = 10  # PAR strategy
     start_balance = 100000  # PAR strategy
+    REFERENCE_YIELD = 0.13496715
+    REFERENCE_SHARPE = 0.8992035532340469
 
     data_by_ticker = load_pickled_dict(pkl_file=pkl_file)
 
     data_by_feature = {}
     adj_close_prices = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN, debug=False, impute=False)
+    valid_dates = adj_close_prices[start_date_requested:end_date_requested].index
+    start_date = valid_dates[0]
+    end_date = valid_dates[-1]
+    print(f'Backtesting date range adjusted from {start_date_requested.date()} - {end_date_requested.date()} to {start_date.date()} - {end_date.date()}')
     start_idx = adj_close_prices.index.get_loc(start_date) - (lookback - 1)
     end_idx = adj_close_prices.index.get_loc(end_date)
+    assert start_idx >= 0, f'Lookback window could not be fulfilled, need {abs(start_idx)} additional data points before {start_date.date()}'
     adj_close_prices = adj_close_prices.iloc[start_idx:end_idx + 1]
 
     volumes = get_feature(data_by_ticker, column=VOLUME_COLUMN, start_idx=start_idx, end_idx=end_idx, debug=False,
@@ -199,7 +220,7 @@ if __name__ == '__main__':
     triggers = day_of_week_triggers & backtesting_window_triggers
     dates = valid_dates[triggers]
 
-    positions_list = pd.Series(index=dates, name='positions')
+    positions_list = pd.Series(index=dates, name='positions', dtype=object)
     for date in dates:
         mask = masks.loc[date]
         performance = performances.loc[date]
@@ -213,8 +234,8 @@ if __name__ == '__main__':
     # V 4 - Balance: remove each transaction and its fees as they occur.
     # V   - And assert that the balance - P&L.sum() + positions bought == start_balance
     # V 5 - Unrealized P&L
-    # 6 - Benchmark against the S&P500 + plotting
-    # 7 - Metrics: Annualized yield, sharpe, sortino, ...
+    # V 6 - Benchmark against the S&P500 + plotting
+    # V 7 - Metrics: Annualized yield, sharpe, sortino, ...
     # 8 - Refactor the position getter into a strategy framework that
     #   - takes start, end, lookback, strategy parameters, strategy data dict
     #   - returns iterables of dates and positions on those dates.
@@ -304,9 +325,12 @@ if __name__ == '__main__':
     print(f'\nPlotted unrealized P&L to file: {plotfile}')
 
     annualized_yield = get_annualized_yield(unrealized_pl=unrealized_pl, start_balance=start_balance)
-    sharpe_ratio = get_sharpe_ratio(unrealized_pl=unrealized_pl)
+    sharpe_ratio = get_sharpe_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
     print(f'\nAnnualized yield: {100 * annualized_yield:.1f}%')
     print(f'Sharpe ratio: {sharpe_ratio:.2f}')
+
+    assert np.isclose(annualized_yield, REFERENCE_YIELD, atol=1e-8), f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
+    assert np.isclose(sharpe_ratio, REFERENCE_SHARPE, atol=1e-8), f'Sharpe ratio is {sharpe_ratio}  but should be {REFERENCE_SHARPE}'
 
     time = timer() - time
     print(f'\nBacktesting time: {time:.3f} s.')
