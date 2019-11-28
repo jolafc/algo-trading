@@ -3,7 +3,7 @@ import pandas as pd
 
 from exp import SP500_PKL
 from exp.data_getter import load_pickled_dict
-from exp.data_loader import WeeklyRotationRunner
+from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
 REFERENCE_YIELD = 0.13514657590506485
 REFERENCE_SHARPE = 0.8992035532340469
@@ -16,7 +16,7 @@ def test_weekly_rotation():
                                   end_date_requested=pd.to_datetime('2019-10-31'),
                                   lookback=200,
                                   verbose=False)
-    runner.fit(data_by_ticker=data_by_ticker)
+    runner.fit(X=data_by_ticker)
     results = runner.results
 
     assert np.isclose(results["annualized_yield"], REFERENCE_YIELD, atol=1e-8), \
