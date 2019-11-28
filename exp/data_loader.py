@@ -7,6 +7,7 @@ import pandas.plotting
 from matplotlib import pyplot as plt
 
 import ta.momentum
+from sklearn.base import BaseEstimator
 
 from exp import DATA_DIR, PLT_FILE_FORMAT, SP500_PKL
 from exp.data_getter import load_pickled_dict
@@ -144,7 +145,8 @@ def get_sharpe_ratio(unrealized_pl, start_balance=0.):
     mean_steps_per_year = unrealized_pl.size / duration_in_years
 
     norm_returns_mean_annualized = normalized_returns.mean() * mean_steps_per_year
-    norm_returns_std_annualized = normalized_returns.std() * np.sqrt(mean_steps_per_year) # Assuming a Weiner process / random walk; mean total distance = distance per step * sqrt(number of steps)
+    norm_returns_std_annualized = normalized_returns.std() * np.sqrt(
+        mean_steps_per_year)  # Assuming a Weiner process / random walk; mean total distance = distance per step * sqrt(number of steps)
     sharpe_ratio = norm_returns_mean_annualized / norm_returns_std_annualized
 
     return sharpe_ratio
@@ -160,11 +162,117 @@ def get_sortino_ratio(unrealized_pl, start_balance=0.):
 
     neg_returns_mask = normalized_returns < 0.
     neg_returns_std = normalized_returns[neg_returns_mask].std()
-    norm_returns_std_annualized = neg_returns_std * np.sqrt(mean_steps_per_year) # Assuming a Weiner process / random walk; mean total distance = distance per step * sqrt(number of steps)
+    norm_returns_std_annualized = neg_returns_std * np.sqrt(
+        mean_steps_per_year)  # Assuming a Weiner process / random walk; mean total distance = distance per step * sqrt(number of steps)
 
     sharpe_ratio = norm_returns_mean_annualized / norm_returns_std_annualized
 
     return sharpe_ratio
+
+
+def slice_backtesting_window(features={}, start_date_requested=None, end_date_requested=None, lookback=None):
+    assert all([isinstance(feature, pd.DataFrame) for feature in features.values()]), \
+        f'Passed features must all be pd.DataFrames!'
+    indexes = [df.index for df in features.values()]
+    assert all([indexes[0].equals(index) for index in indexes[1:]]), \
+        f'All features DataFrames must have the same indexing.'
+
+    df = list(features.values())[0]
+    valid_dates = df[start_date_requested:end_date_requested].index
+    start_date = valid_dates[0]
+    end_date = valid_dates[-1]
+    print(f'Backtesting date range adjusted from {start_date_requested.date()} - {end_date_requested.date()}'
+          f' to {start_date.date()} - {end_date.date()}')
+
+    start_idx = df.index.get_loc(start_date) - (lookback - 1)
+    end_idx = df.index.get_loc(end_date)
+    assert start_idx >= 0, \
+        f'Lookback window could not be fulfilled, need {abs(start_idx)} additional data points before {start_date.date()}'
+
+    features_sliced = {k: df.iloc[start_idx:end_idx + 1] for k, df in features.items()}
+
+    return features_sliced, (start_date, end_date)
+
+
+class WeelkyRotation(BaseEstimator):
+
+    def __init__(self,
+                 start_date=None,
+                 end_date=None,
+                 lookback=200,
+
+                 sma_tol=0.02,
+                 volume_lookback=20,
+                 volume_threshold=1e6,
+                 price_min=1.,
+                 rsi_lookback=3,
+                 rsi_threshold=50.,
+                 day_of_trade=4,
+                 n_positions=10):
+        self.start_date = start_date
+        self.end_date = end_date
+        self.lookback = lookback
+
+        self.sma_tol = sma_tol
+        self.volume_lookback = volume_lookback
+        self.volume_threshold = volume_threshold
+        self.price_min = price_min
+        self.rsi_lookback = rsi_lookback
+        self.rsi_threshold = rsi_threshold
+        self.day_of_trade = day_of_trade
+        self.n_positions = n_positions
+
+    def fit(self, data_by_feature={}):
+        adj_close_prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
+        volumes = data_by_feature[VOLUME_COLUMN]
+
+        # Filters for §8: Weekly rotation of the S&P 500 - The 30-Minute Stock Trader
+        # 1 - SPY is above 0.98*SMA(200)
+        spy = adj_close_prices['SPY']
+        spy_sma = adj_close_prices['SPY'].rolling(self.lookback).mean()
+        spy_masks = spy > spy_sma * (1 - self.sma_tol)
+
+        # 2 - avg. vol. (20) >= 1M
+        volumes_sma = volumes.rolling(self.volume_lookback).mean()
+        volumes_masks = volumes_sma >= self.volume_threshold
+
+        # 3 - Min price 1$
+        price_masks = adj_close_prices > self.price_min
+
+        # 4 - RSI(3) < 50
+        prices_rsi = adj_close_prices.apply(lambda x: ta.momentum.rsi(x, n=self.rsi_lookback))
+        rsi_masks = prices_rsi < self.rsi_threshold
+
+        # Total masks 1-4
+        # For pd.Series: .values[:, None] is to transform the series to a np.array and use its broadcasting capabilities,
+        # specifying which axis needs to be repeated
+        masks = volumes_masks & price_masks & rsi_masks & spy_masks.values[:, None]
+
+        # 5a - Sort wrt the ROC(200)
+        performances = adj_close_prices / adj_close_prices.shift(self.lookback - 1)
+
+        # 5b - trade on Fridays in the backtesting window
+        valid_dates = adj_close_prices.index
+        day_of_week_triggers = valid_dates.dayofweek == self.day_of_trade
+        backtesting_window_triggers = (valid_dates >= start_date) & (valid_dates <= end_date)
+        triggers = day_of_week_triggers & backtesting_window_triggers
+        dates = valid_dates[triggers]
+
+        positions_list = pd.Series(index=dates, name='positions', dtype=object)
+        for date in dates:
+            mask = masks.loc[date]
+            performance = performances.loc[date]
+            positions_list[date] = performance[mask].sort_values(ascending=False)[:self.n_positions].index.tolist()
+
+        self.positions_list = positions_list
+
+        return self
+
+    def predict(self, date):
+        return self.positions_list[date]
+
+    def get_dates(self):
+        return self.positions_list.index
 
 
 if __name__ == '__main__':
@@ -176,73 +284,30 @@ if __name__ == '__main__':
     end_date_requested = pd.to_datetime('2019-10-31')  # PAR backtesting
     # start_date_requested = pd.to_datetime('2000-11-19')  # PAR backtesting
     # end_date_requested = pd.to_datetime('2019-11-22')  # PAR backtesting
-    lookback = 200  # PAR backtesting
 
-    sma_tol = 0.02  # PAR strategy
-    volume_lookback = 20  # PAR strategy
-    volume_threshold = 1e6  # PAR strategy
-    price_min = 1.  # PAR strategy
-    rsi_lookback = 3  # PAR strategy
-    rsi_threshold = 50.  # PAR strategy
-    day_of_trade = 4  # PAR strategy - pandas DatetimeIndex.dayofweek value for Friday
-    n_positions = 10  # PAR strategy
-    start_balance = 100000  # PAR strategy
+    lookback = 200  # PAR backtesting
+    start_balance = 100000  # PAR backtesting
+
     REFERENCE_YIELD = 0.13514657590506485
     REFERENCE_SHARPE = 0.8992035532340469
 
     data_by_ticker = load_pickled_dict(pkl_file=pkl_file)
 
     data_by_feature = {}
-    adj_close_prices = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN, debug=False, impute=False)
-    valid_dates = adj_close_prices[start_date_requested:end_date_requested].index
-    start_date = valid_dates[0]
-    end_date = valid_dates[-1]
-    print(f'Backtesting date range adjusted from {start_date_requested.date()} - {end_date_requested.date()} to {start_date.date()} - {end_date.date()}')
-    start_idx = adj_close_prices.index.get_loc(start_date) - (lookback - 1)
-    end_idx = adj_close_prices.index.get_loc(end_date)
-    assert start_idx >= 0, f'Lookback window could not be fulfilled, need {abs(start_idx)} additional data points before {start_date.date()}'
-    adj_close_prices = adj_close_prices.iloc[start_idx:end_idx + 1]
+    data_by_feature[ADJUSTED_CLOSE_COLUMN] = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN, debug=False,
+                                                         impute=False)
+    data_by_feature[VOLUME_COLUMN] = get_feature(data_by_ticker, column=VOLUME_COLUMN, debug=False, impute=False)
 
-    volumes = get_feature(data_by_ticker, column=VOLUME_COLUMN, start_idx=start_idx, end_idx=end_idx, debug=False,
-                          impute=False)
+    data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
+                                                                       start_date_requested=start_date_requested,
+                                                                       end_date_requested=end_date_requested,
+                                                                       lookback=lookback)
 
-    # Filters for §8: Weekly rotation of the S&P 500 - The 30-Minute Stock Trader
-    # 1 - SPY is above 0.98*SMA(200)
-    spy = adj_close_prices['SPY']
-    spy_sma = adj_close_prices['SPY'].rolling(lookback).mean()
-    spy_masks = spy > spy_sma * (1 - sma_tol)
+    adj_close_prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
 
-    # 2 - avg. vol. (20) >= 1M
-    volumes_sma = volumes.rolling(volume_lookback).mean()
-    volumes_masks = volumes_sma >= volume_threshold
-
-    # 3 - Min price 1$
-    price_masks = adj_close_prices > price_min
-
-    # 4 - RSI(3) < 50
-    prices_rsi = adj_close_prices.apply(lambda x: ta.momentum.rsi(x, n=rsi_lookback))
-    rsi_masks = prices_rsi < rsi_threshold
-
-    # Total masks 1-4
-    # For pd.Series: .values[:, None] is to transform the series to a np.array and use its broadcasting capabilities,
-    # specifying which axis needs to be repeated
-    masks = volumes_masks & price_masks & rsi_masks & spy_masks.values[:, None]
-
-    # 5a - Sort wrt the ROC(200)
-    performances = adj_close_prices / adj_close_prices.shift(lookback - 1)
-
-    # 5b - trade on Fridays in the backtesting window
-    valid_dates = adj_close_prices.index
-    day_of_week_triggers = valid_dates.dayofweek == day_of_trade
-    backtesting_window_triggers = (valid_dates >= start_date) & (valid_dates <= end_date)
-    triggers = day_of_week_triggers & backtesting_window_triggers
-    dates = valid_dates[triggers]
-
-    positions_list = pd.Series(index=dates, name='positions', dtype=object)
-    for date in dates:
-        mask = masks.loc[date]
-        performance = performances.loc[date]
-        positions_list[date] = performance[mask].sort_values(ascending=False)[:n_positions].index.tolist()
+    strategy = WeelkyRotation(start_date=start_date, end_date=end_date, lookback=lookback)
+    strategy.fit(data_by_feature=data_by_feature)
+    dates = strategy.get_dates()
 
     # Backtesting loop.
     # V 1 - Positions dataframe with buy price+date
@@ -258,6 +323,10 @@ if __name__ == '__main__':
     #   - takes start, end, lookback, strategy parameters, strategy data dict
     #   - returns iterables of dates and positions on those dates.
     # 9 - Refactor the backtesting loop into a class
+    # 10 - Data loader file, metrics file, reporting file, ...
+    # 11 - Use the open, high and low of the next day when executing trades in backtesting, to get more meaningful
+    #      estimate and confidence interval.
+    #    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
 
     positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
     errors_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
@@ -265,11 +334,12 @@ if __name__ == '__main__':
     unrealized_pl = pd.Series(index=dates, name=f'Unrealized P&L')
     pos_counter = 0
     balance = start_balance
+    old_position = set()
     for i, date in enumerate(dates):
-        new_position = set(positions_list.iloc[i])
-        old_position = set(positions_list.iloc[i - 1]) if i - 1 >= 0 else set()
+        new_position = set(strategy.predict(date))
         buys = new_position.difference(old_position)
         sells = old_position.difference(new_position)
+        old_position = new_position
 
         for sell in sells:
             mask = positions_df['ticker'] == sell
@@ -293,7 +363,7 @@ if __name__ == '__main__':
             trades_df.loc[pos_id, 'fees'] = trades_df.loc[pos_id, 'fees_buy'] + trades_df.loc[pos_id, 'fees_sell']
             trades_df.loc[pos_id, 'P&L'] = get_p_and_l(row=trades_df.loc[pos_id])
 
-        notional = get_notional(balance=balance, n_buys=len(buys), price_min=price_min)
+        notional = get_notional(balance=balance, n_buys=len(buys), price_min=strategy.price_min)
         for buy in buys:
             price = adj_close_prices.loc[date, buy]
             position = notional // price
@@ -350,15 +420,17 @@ if __name__ == '__main__':
     plt.plot(benckmark_pl, '--b', label=benchmark_label)
     xlim = plt.xlim()
     plt.xlim(xlim)
-    plt.plot(xlim, [0.]*2, '--k')
+    plt.plot(xlim, [0.] * 2, '--k')
     plt.title(f'Strategy performance')
     plt.legend()
     plotfile = os.path.join(DATA_DIR, f'unrealized_pl.{PLT_FILE_FORMAT}')
     plt.savefig(plotfile)
     print(f'\nPlotted unrealized P&L to file: {plotfile}')
 
-    assert np.isclose(annualized_yield, REFERENCE_YIELD, atol=1e-8), f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
-    assert np.isclose(sharpe_ratio, REFERENCE_SHARPE, atol=1e-8), f'Sharpe ratio is {sharpe_ratio}  but should be {REFERENCE_SHARPE}'
+    assert np.isclose(annualized_yield, REFERENCE_YIELD,
+                      atol=1e-8), f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
+    assert np.isclose(sharpe_ratio, REFERENCE_SHARPE,
+                      atol=1e-8), f'Sharpe ratio is {sharpe_ratio}  but should be {REFERENCE_SHARPE}'
 
     time = timer() - time
     print(f'\nBacktesting time: {time:.3f} s.')
