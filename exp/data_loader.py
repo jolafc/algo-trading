@@ -11,22 +11,8 @@ from sklearn.base import BaseEstimator
 
 from exp import DATA_DIR, PLT_FILE_FORMAT, SP500_PKL
 from exp.data_getter import load_pickled_dict
-
-ADJUSTED_CLOSE_COLUMN = 'adjusted_close'
-OPEN_COLUMN = 'open'
-HIGH_COLUMN = 'high'
-LOW_COLUMN = 'low'
-CLOSE_COLUMN = 'close'
-VOLUME_COLUMN = 'volume'
-DIVIDENT_COLUMN = 'dividend_amount'
-SPLIT_COLUMN = 'split_coefficient'
-
-POSITIONS_COLUMNS = ['date_buy', 'ticker', 'position', 'price_buy', 'fees_buy']
-TRADES_EXTRA_COLUMNS = ['date_sell', 'price_sell', 'fees_sell']
-TRADES_COLUMNS = POSITIONS_COLUMNS + TRADES_EXTRA_COLUMNS + ['fees', 'P&L']
-
-BENCKMARK_TICKER = 'SPY'
-N_DAYS_IN_YEAR = 365
+from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, POSITIONS_COLUMNS, TRADES_EXTRA_COLUMNS, \
+    TRADES_COLUMNS, BENCKMARK_TICKER, N_DAYS_IN_YEAR, DEFAULT_START_BALANCE
 
 
 ### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
@@ -35,7 +21,28 @@ N_DAYS_IN_YEAR = 365
 ### TODO: The price for the execution is currently the price for the decision making; maybe the next day open instead?
 ### TODO: Ticker changes, merger, acquisitions, and bankrupcies: currently selling at the buy price, to prevent automl to pick up on those errors.
 
-def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_idx=None, debug=False, impute=None):
+
+# Backtesting loop.
+# V 1 - Positions dataframe with buy price+date
+# V 2 - Trades dataframe with positions df columns + sell price+date+fees.
+# V   - Sells are first removed from the positions and added to the trades. Then buys are added to positions.
+# V 3 - Then, add P&L.
+# V 4 - Balance: remove each transaction and its fees as they occur.
+# V   - And assert that the balance - P&L.sum() + positions bought == start_balance
+# V 5 - Unrealized P&L
+# V 6 - Benchmark against the S&P500 + plotting
+# V 7 - Metrics: Annualized yield, sharpe, sortino, ...
+# 8 - Refactor the position getter into a strategy framework that
+#   - takes start, end, lookback, strategy parameters, strategy data dict
+#   - returns iterables of dates and positions on those dates.
+# 9 - Refactor the backtesting loop into a class
+# 10 - Data loader file, metrics file, reporting file, ...
+# 11 - Use the open, high and low of the next day when executing trades in backtesting, to get more meaningful
+#      estimate and confidence interval.
+#    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
+
+def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_idx=None, debug=False, impute=None,
+                verbose=True):
     prices_dict_clean = {k: v for k, v in prices_dict.items() if v is not None}
 
     feature_df = [df[column].rename(k) for k, df in prices_dict_clean.items()]
@@ -44,26 +51,29 @@ def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_i
     first_date = feature_df.index[0]
     last_date = feature_df.index[-1]
     n_tickers = len(feature_df.columns)
-    print(f'Loaded {column} for {n_tickers} tickers from {first_date.date()} to {last_date.date()}.')
+    if verbose:
+        print(f'Loaded {column} for {n_tickers} tickers from {first_date.date()} to {last_date.date()}.')
 
     if start_idx is not None and end_idx is not None:
         feature_df = feature_df.iloc[start_idx:end_idx + 1, :]
     if debug:
-        report_nans(feature_df, feature_name=column)
+        report_nans(feature_df, feature_name=column, verbose=verbose)
     if impute is not None:
         feature_df = impute_time_series(feature_df, method=impute)
 
     return feature_df
 
 
-def report_nans(df, feature_name=ADJUSTED_CLOSE_COLUMN):
+def report_nans(df, feature_name=ADJUSTED_CLOSE_COLUMN, verbose=True):
     n_nans = df.isna().sum(axis=0).sort_values(ascending=False)
-    print(f'Number of Nans per ticker for {feature_name}:\n{n_nans}\n')
 
     df.isna().sum(axis=1).plot()
     plotfile = os.path.join(DATA_DIR, f'Nans_{feature_name}.{PLT_FILE_FORMAT}')
     plt.savefig(plotfile)
-    print(f'Number of Nans per day for {feature_name} plotted in file: {plotfile}\n')
+
+    if verbose:
+        print(f'Number of Nans per ticker for {feature_name}:\n{n_nans}\n')
+        print(f'Number of Nans per day for {feature_name} plotted in file: {plotfile}\n')
 
 
 def impute_time_series(df, method=None):
@@ -170,7 +180,8 @@ def get_sortino_ratio(unrealized_pl, start_balance=0.):
     return sharpe_ratio
 
 
-def slice_backtesting_window(features={}, start_date_requested=None, end_date_requested=None, lookback=None):
+def slice_backtesting_window(features={}, start_date_requested=None, end_date_requested=None, lookback=None,
+                             verbose=True):
     assert all([isinstance(feature, pd.DataFrame) for feature in features.values()]), \
         f'Passed features must all be pd.DataFrames!'
     indexes = [df.index for df in features.values()]
@@ -181,8 +192,9 @@ def slice_backtesting_window(features={}, start_date_requested=None, end_date_re
     valid_dates = df[start_date_requested:end_date_requested].index
     start_date = valid_dates[0]
     end_date = valid_dates[-1]
-    print(f'Backtesting date range adjusted from {start_date_requested.date()} - {end_date_requested.date()}'
-          f' to {start_date.date()} - {end_date.date()}')
+    if verbose:
+        print(f'Backtesting date range adjusted from {start_date_requested.date()} - {end_date_requested.date()}'
+              f' to {start_date.date()} - {end_date.date()}')
 
     start_idx = df.index.get_loc(start_date) - (lookback - 1)
     end_idx = df.index.get_loc(end_date)
@@ -254,7 +266,7 @@ class WeelkyRotation(BaseEstimator):
         # 5b - trade on Fridays in the backtesting window
         valid_dates = adj_close_prices.index
         day_of_week_triggers = valid_dates.dayofweek == self.day_of_trade
-        backtesting_window_triggers = (valid_dates >= start_date) & (valid_dates <= end_date)
+        backtesting_window_triggers = (valid_dates >= self.start_date) & (valid_dates <= self.end_date)
         triggers = day_of_week_triggers & backtesting_window_triggers
         dates = valid_dates[triggers]
 
@@ -275,162 +287,207 @@ class WeelkyRotation(BaseEstimator):
         return self.positions_list.index
 
 
-if __name__ == '__main__':
-    time = timer()
+class Backtesting(object):
 
-    pkl_file = SP500_PKL  # PAR data
+    def __init__(self, start_balance=DEFAULT_START_BALANCE):
+        self.start_balance = start_balance
 
-    start_date_requested = pd.to_datetime('2019-01-31')  # PAR backtesting
-    end_date_requested = pd.to_datetime('2019-10-31')  # PAR backtesting
-    # start_date_requested = pd.to_datetime('2000-11-19')  # PAR backtesting
-    # end_date_requested = pd.to_datetime('2019-11-22')  # PAR backtesting
+    def fit(self, strategy, prices, dates=None):
+        if dates is None:
+            dates = prices.index
+        positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
+        errors_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
+        trades_df = pd.DataFrame(columns=TRADES_COLUMNS)
+        unrealized_pl = pd.Series(index=dates, name=f'Unrealized P&L')
+        pos_counter = 0
+        balance = self.start_balance
+        old_position = set()
+        for i, date in enumerate(dates):
+            new_position = set(strategy.predict(date))
+            buys = new_position.difference(old_position)
+            sells = old_position.difference(new_position)
+            old_position = new_position
 
-    lookback = 200  # PAR backtesting
-    start_balance = 100000  # PAR backtesting
+            for sell in sells:
+                mask = positions_df['ticker'] == sell
+                assert mask.sum() == 1, f'The number of current positions matching {sell} is {mask.sum()} but should be ==1'
+                pos_id = positions_df[mask].index[0]
 
-    REFERENCE_YIELD = 0.13514657590506485
-    REFERENCE_SHARPE = 0.8992035532340469
+                price = prices.loc[date, sell]
+                position = positions_df.loc[pos_id, 'position']
+                if pd.isna(price):
+                    price = positions_df.loc[pos_id, 'price_buy']
+                    errors_df.loc[pos_id, POSITIONS_COLUMNS] = positions_df.loc[pos_id, POSITIONS_COLUMNS]
+                    errors_df.loc[pos_id, 'date_sell'] = date
+                fee = get_ib_fees(position=position, price=price)
 
-    data_by_ticker = load_pickled_dict(pkl_file=pkl_file)
+                balance += position * price - fee
 
-    data_by_feature = {}
-    data_by_feature[ADJUSTED_CLOSE_COLUMN] = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN, debug=False,
-                                                         impute=False)
-    data_by_feature[VOLUME_COLUMN] = get_feature(data_by_ticker, column=VOLUME_COLUMN, debug=False, impute=False)
+                trades_df.loc[pos_id, POSITIONS_COLUMNS] = positions_df.loc[pos_id, POSITIONS_COLUMNS]
+                positions_df = positions_df.drop(index=pos_id)
 
-    data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
-                                                                       start_date_requested=start_date_requested,
-                                                                       end_date_requested=end_date_requested,
-                                                                       lookback=lookback)
+                trades_df.loc[pos_id, TRADES_EXTRA_COLUMNS] = [date, price, fee]
+                trades_df.loc[pos_id, 'fees'] = trades_df.loc[pos_id, 'fees_buy'] + trades_df.loc[pos_id, 'fees_sell']
+                trades_df.loc[pos_id, 'P&L'] = get_p_and_l(row=trades_df.loc[pos_id])
 
-    adj_close_prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
+            notional = get_notional(balance=balance, n_buys=len(buys), price_min=strategy.price_min)
+            for buy in buys:
+                price = prices.loc[date, buy]
+                position = notional // price
+                fee = get_ib_fees(position=position, price=price)
 
-    strategy = WeelkyRotation(start_date=start_date, end_date=end_date, lookback=lookback)
-    strategy.fit(data_by_feature=data_by_feature)
-    dates = strategy.get_dates()
+                balance += -position * price - fee
 
-    # Backtesting loop.
-    # V 1 - Positions dataframe with buy price+date
-    # V 2 - Trades dataframe with positions df columns + sell price+date+fees.
-    # V   - Sells are first removed from the positions and added to the trades. Then buys are added to positions.
-    # V 3 - Then, add P&L.
-    # V 4 - Balance: remove each transaction and its fees as they occur.
-    # V   - And assert that the balance - P&L.sum() + positions bought == start_balance
-    # V 5 - Unrealized P&L
-    # V 6 - Benchmark against the S&P500 + plotting
-    # V 7 - Metrics: Annualized yield, sharpe, sortino, ...
-    # 8 - Refactor the position getter into a strategy framework that
-    #   - takes start, end, lookback, strategy parameters, strategy data dict
-    #   - returns iterables of dates and positions on those dates.
-    # 9 - Refactor the backtesting loop into a class
-    # 10 - Data loader file, metrics file, reporting file, ...
-    # 11 - Use the open, high and low of the next day when executing trades in backtesting, to get more meaningful
-    #      estimate and confidence interval.
-    #    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
+                positions_df.loc[pos_counter, POSITIONS_COLUMNS] = [date, buy, position, price, fee]
+                pos_counter += 1
 
-    positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
-    errors_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
-    trades_df = pd.DataFrame(columns=TRADES_COLUMNS)
-    unrealized_pl = pd.Series(index=dates, name=f'Unrealized P&L')
-    pos_counter = 0
-    balance = start_balance
-    old_position = set()
-    for i, date in enumerate(dates):
-        new_position = set(strategy.predict(date))
-        buys = new_position.difference(old_position)
-        sells = old_position.difference(new_position)
-        old_position = new_position
+            unrealized_pl[date] = get_total_unrealized_p_and_l(trades_df=trades_df, positions_df=positions_df,
+                                                               prices_series=prices.loc[date])
 
-        for sell in sells:
-            mask = positions_df['ticker'] == sell
-            assert mask.sum() == 1, f'The number of current positions matching {sell} is {mask.sum()} but should be ==1'
-            pos_id = positions_df[mask].index[0]
+        balance_theoric = get_balance(start_balance=self.start_balance, trades_df=trades_df, positions_df=positions_df)
+        assert np.isclose(balance, balance_theoric, atol=0.01), \
+            f'Backtesting end balance does not check out against transactions: ' \
+            f'end balance = {balance:.2f}$ VS theoric balance = {balance_theoric:.2f}$.'
 
-            price = adj_close_prices.loc[date, sell]
-            position = positions_df.loc[pos_id, 'position']
-            if pd.isna(price):
-                price = positions_df.loc[pos_id, 'price_buy']
-                errors_df.loc[pos_id, POSITIONS_COLUMNS] = positions_df.loc[pos_id, POSITIONS_COLUMNS]
-                errors_df.loc[pos_id, 'date_sell'] = date
-            fee = get_ib_fees(position=position, price=price)
+        date = dates[-1]
+        prices_current = prices.loc[date, positions_df['ticker']].values
+        value_current = (positions_df['position'] * prices_current).sum()
+        balance_pl = self.start_balance + unrealized_pl[date] - value_current
+        assert np.isclose(balance, balance_pl, atol=0.01), \
+            f'Backtesting end balance does not check out against balance deduced from (last P&L - investments): ' \
+            f'end balance = {balance:.2f}$ VS P&L derived balance = {balance_pl:.2f}$.'
 
-            balance += position * price - fee
+        self.trades_df = trades_df
+        self.positions_df = positions_df
+        self.errors_df = errors_df
+        self.unrealized_pl = unrealized_pl
 
-            trades_df.loc[pos_id, POSITIONS_COLUMNS] = positions_df.loc[pos_id, POSITIONS_COLUMNS]
-            positions_df = positions_df.drop(index=pos_id)
+        return self
 
-            trades_df.loc[pos_id, TRADES_EXTRA_COLUMNS] = [date, price, fee]
-            trades_df.loc[pos_id, 'fees'] = trades_df.loc[pos_id, 'fees_buy'] + trades_df.loc[pos_id, 'fees_sell']
-            trades_df.loc[pos_id, 'P&L'] = get_p_and_l(row=trades_df.loc[pos_id])
+    def get_trades(self):
+        return self.trades_df, self.positions_df, self.errors_df
 
-        notional = get_notional(balance=balance, n_buys=len(buys), price_min=strategy.price_min)
-        for buy in buys:
-            price = adj_close_prices.loc[date, buy]
-            position = notional // price
-            fee = get_ib_fees(position=position, price=price)
+    def get_unrealized_pl(self):
+        return self.unrealized_pl
 
-            balance += -position * price - fee
 
-            positions_df.loc[pos_counter, POSITIONS_COLUMNS] = [date, buy, position, price, fee]
-            pos_counter += 1
+def make_backtesting_report(backtesting, prices, dates=None, verbose=True, plotting=True):
+    assert isinstance(backtesting, Backtesting), \
+        f'This function requires an instance of the Backtesting class to work.'
+    trades_df, positions_df, errors_df = backtesting.get_trades()
+    unrealized_pl = backtesting.get_unrealized_pl()
+    start_balance = backtesting.start_balance
 
-        unrealized_pl[date] = get_total_unrealized_p_and_l(trades_df=trades_df, positions_df=positions_df,
-                                                           prices_series=adj_close_prices.loc[date])
+    if verbose > 1:
+        print(f'\nTrades DataFrame:\n{trades_df}')
+        print(f'\nPositions DataFrame:\n{positions_df}')
+        print(f'\nErrors DataFrame:\n{errors_df}')
+        print(f'\nUnrealized P&L Series:\n{unrealized_pl}')
 
-    balance_theoric = get_balance(start_balance=start_balance, trades_df=trades_df, positions_df=positions_df)
-    assert np.isclose(balance, balance_theoric, atol=0.01), \
-        f'Backtesting end balance does not check out against transactions: ' \
-        f'end balance = {balance:.2f}$ VS theoric balance = {balance_theoric:.2f}$.'
-
-    date = dates[-1]
-    prices_current = adj_close_prices.loc[date, positions_df['ticker']].values
-    value_current = (positions_df['position'] * prices_current).sum()
-    balance_pl = start_balance + unrealized_pl[date] - value_current
-    assert np.isclose(balance, balance_pl, atol=0.01), \
-        f'Backtesting end balance does not check out against balance deduced from (last P&L - investments): ' \
-        f'end balance = {balance:.2f}$ VS P&L derived balance = {balance_pl:.2f}$.'
-
-    print(f'\nTrades DataFrame:\n{trades_df}')
-    print(f'\nPositions DataFrame:\n{positions_df}')
-    print(f'\nErrors DataFrame:\n{errors_df}')
-    print(f'\nUnrealized P&L Series:\n{unrealized_pl}')
-    realized_pl = trades_df['P&L'].sum()
-    print(f'\nRealized P&L: {realized_pl:.2f}$')
-
-    benckmark_prices = adj_close_prices.loc[dates, BENCKMARK_TICKER]
+    benckmark_prices = prices.loc[dates, BENCKMARK_TICKER]
     benckmark_position = start_balance / benckmark_prices.iloc[0]
     benckmark_fee = get_ib_fees(position=benckmark_position, price=benckmark_prices.iloc[0])
     benckmark_pl = benckmark_position * benckmark_prices - start_balance - benckmark_fee
 
+    realized_pl = trades_df['P&L'].sum()
     annualized_yield = get_annualized_yield(unrealized_pl=unrealized_pl, start_balance=start_balance)
     sharpe_ratio = get_sharpe_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
     sortino_ratio = get_sortino_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
     benchmark_annualized_yield = get_annualized_yield(unrealized_pl=benckmark_pl, start_balance=start_balance)
     benchmark_sharpe_ratio = get_sharpe_ratio(unrealized_pl=benckmark_pl, start_balance=start_balance)
     benchmark_sortino_ratio = get_sortino_ratio(unrealized_pl=benckmark_pl, start_balance=start_balance)
-    print(f'\nAnnualized yield = {100 * annualized_yield:.1f}%; benckmark = {100 * benchmark_annualized_yield:.1f}%')
-    print(f'Sharpe ratio: {sharpe_ratio:.2f}; benckmark = {benchmark_sharpe_ratio:.2f}')
-    print(f'Sortino ratio: {sortino_ratio:.2f}; benckmark = {benchmark_sortino_ratio:.2f}')
 
-    pd.plotting.register_matplotlib_converters()
-    plt.figure(figsize=(10, 5))
-    label = f'{unrealized_pl.name} - yield={100 * annualized_yield:.1f}%; sharpe={sharpe_ratio:.2f}; sortino={sortino_ratio:.2f}'
-    plt.plot(unrealized_pl, '--r', label=label)
-    benchmark_label = f'{benckmark_pl.name} - yield={100 * benchmark_annualized_yield:.1f}%; sharpe={benchmark_sharpe_ratio:.2f}; sortino={benchmark_sortino_ratio:.2f}'
-    plt.plot(benckmark_pl, '--b', label=benchmark_label)
-    xlim = plt.xlim()
-    plt.xlim(xlim)
-    plt.plot(xlim, [0.] * 2, '--k')
-    plt.title(f'Strategy performance')
-    plt.legend()
-    plotfile = os.path.join(DATA_DIR, f'unrealized_pl.{PLT_FILE_FORMAT}')
-    plt.savefig(plotfile)
-    print(f'\nPlotted unrealized P&L to file: {plotfile}')
+    if verbose:
+        print(f'\nRealized P&L: {realized_pl:.2f}$')
+        print(f'Annualized yield = {100 * annualized_yield:.1f}%; benckmark = {100 * benchmark_annualized_yield:.1f}%')
+        print(f'Sharpe ratio: {sharpe_ratio:.2f}; benckmark = {benchmark_sharpe_ratio:.2f}')
+        print(f'Sortino ratio: {sortino_ratio:.2f}; benckmark = {benchmark_sortino_ratio:.2f}')
 
-    assert np.isclose(annualized_yield, REFERENCE_YIELD,
-                      atol=1e-8), f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
-    assert np.isclose(sharpe_ratio, REFERENCE_SHARPE,
-                      atol=1e-8), f'Sharpe ratio is {sharpe_ratio}  but should be {REFERENCE_SHARPE}'
+    if plotting:
+        pd.plotting.register_matplotlib_converters()
+        plt.figure(figsize=(10, 5))
+        label = f'{unrealized_pl.name} - yield={100 * annualized_yield:.1f}%; sharpe={sharpe_ratio:.2f}; sortino={sortino_ratio:.2f}'
+        plt.plot(unrealized_pl, '--r', label=label)
+        benchmark_label = f'{benckmark_pl.name} - yield={100 * benchmark_annualized_yield:.1f}%; sharpe={benchmark_sharpe_ratio:.2f}; sortino={benchmark_sortino_ratio:.2f}'
+        plt.plot(benckmark_pl, '--b', label=benchmark_label)
+        xlim = plt.xlim()
+        plt.xlim(xlim)
+        plt.plot(xlim, [0.] * 2, '--k')
+        plt.title(f'Strategy performance')
+        plt.legend()
+        plotfile = os.path.join(DATA_DIR, f'unrealized_pl.{PLT_FILE_FORMAT}')
+        plt.savefig(plotfile)
+        if verbose:
+            print(f'\nPlotted unrealized P&L to file: {plotfile}')
 
-    time = timer() - time
-    print(f'\nBacktesting time: {time:.3f} s.')
+    results = {'realized_pl': realized_pl,
+               'annualized_yield': annualized_yield,
+               'sharpe_ratio': sharpe_ratio,
+               'sortino_ratio': sortino_ratio}
+
+    return results
+
+
+class WeeklyRotationRunner(BaseEstimator):
+
+    def __init__(self,
+                 start_date_requested=pd.to_datetime('2019-01-31'),
+                 end_date_requested=pd.to_datetime('2019-10-31'),
+                 lookback=200,
+                 start_balance=DEFAULT_START_BALANCE,
+                 verbose=True):
+        self.start_date_requested = start_date_requested
+        self.end_date_requested = end_date_requested
+        self.lookback = lookback
+        self.start_balance = start_balance
+        self.verbose = verbose
+
+    def fit(self, data_by_ticker):
+        time = timer()
+
+        data_by_feature = {}
+        data_by_feature[ADJUSTED_CLOSE_COLUMN] = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN,
+                                                             debug=False, impute=False, verbose=self.verbose)
+        data_by_feature[VOLUME_COLUMN] = get_feature(data_by_ticker, column=VOLUME_COLUMN,
+                                                     debug=False, impute=False, verbose=self.verbose)
+        data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
+                                                                           start_date_requested=self.start_date_requested,
+                                                                           end_date_requested=self.end_date_requested,
+                                                                           lookback=self.lookback,
+                                                                           verbose=self.verbose)
+
+        prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
+
+        strategy = WeelkyRotation(start_date=start_date, end_date=end_date, lookback=self.lookback)
+        strategy.fit(data_by_feature=data_by_feature)
+        dates = strategy.get_dates()
+
+        backtesting = Backtesting(start_balance=self.start_balance)
+        backtesting.fit(strategy=strategy, prices=prices, dates=dates)
+
+        self.results = make_backtesting_report(backtesting=backtesting, prices=prices, dates=dates,
+                                               verbose=self.verbose, plotting=self.verbose)
+
+        time = timer() - time
+        if self.verbose:
+            print(f'\nBacktesting time: {time:.3f} s.')
+
+        return self
+
+    def score(self, x_test=None, y_test=None):
+        return self.results["annualized_yield"]
+
+
+if __name__ == '__main__':
+    data_by_ticker = load_pickled_dict(pkl_file=SP500_PKL)
+
+    runner = WeeklyRotationRunner(start_date_requested=pd.to_datetime('2019-01-31'),  # '2000-11-19'
+                                  end_date_requested=pd.to_datetime('2019-10-31'),  # '2019-11-22'
+                                  lookback=200,
+                                  verbose=True)
+    runner.fit(data_by_ticker=data_by_ticker)
+
+    REFERENCE_YIELD = 0.13514657590506485
+    annualized_yield = runner.score()
+    assert np.isclose(annualized_yield, REFERENCE_YIELD, atol=1e-8), \
+        f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
