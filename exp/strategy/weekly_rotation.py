@@ -13,6 +13,7 @@ from exp.reporting import make_backtesting_report
 
 from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT_START_BALANCE
 
+
 ### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
 ### TODO: Need to (re)-implement the RSI/EMA indicators.
 ### TODO: Forward pad: limit the number of padded values
@@ -35,7 +36,7 @@ from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT
 # V   - returns iterables of dates and positions on those dates.
 # V 9 - Refactor the backtesting loop into a class
 # V 10 - Data loader file, metrics file, reporting file, ...
-# 11 - Passthrough all strategy parameters
+# V 11 - Passthrough all strategy parameters
 # 12 - Use the open, high and low of the next day when executing trades in backtesting, to get more meaningful
 #      estimate and confidence interval.
 #    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
@@ -129,12 +130,28 @@ class WeeklyRotationRunner(BaseEstimator):
                  end_date_requested=pd.to_datetime('2019-10-31'),
                  lookback=200,
                  start_balance=DEFAULT_START_BALANCE,
-                 verbose=True):
+                 verbose=True,
+                 sma_tol=0.02,
+                 volume_lookback=20,
+                 volume_threshold=1e6,
+                 price_min=1.,
+                 rsi_lookback=3,
+                 rsi_threshold=50.,
+                 day_of_trade=4,
+                 n_positions=10):
         self.start_date_requested = start_date_requested
         self.end_date_requested = end_date_requested
         self.lookback = lookback
         self.start_balance = start_balance
         self.verbose = verbose
+        self.sma_tol = sma_tol
+        self.volume_lookback = volume_lookback
+        self.volume_threshold = volume_threshold
+        self.price_min = price_min
+        self.rsi_lookback = rsi_lookback
+        self.rsi_threshold = rsi_threshold
+        self.day_of_trade = day_of_trade
+        self.n_positions = n_positions
 
     def fit(self, X, y=None):
         time = timer()
@@ -152,7 +169,18 @@ class WeeklyRotationRunner(BaseEstimator):
 
         prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
 
-        strategy = WeelkyRotation(start_date=start_date, end_date=end_date, lookback=self.lookback)
+        strategy = WeelkyRotation(start_date=start_date,
+                                  end_date=end_date,
+                                  lookback=self.lookback,
+
+                                  sma_tol=self.sma_tol,
+                                  volume_lookback=self.volume_lookback,
+                                  volume_threshold=self.volume_threshold,
+                                  price_min=self.price_min,
+                                  rsi_lookback=self.rsi_lookback,
+                                  rsi_threshold=self.rsi_threshold,
+                                  day_of_trade=self.day_of_trade,
+                                  n_positions=self.n_positions)
         strategy.fit(data_by_feature=data_by_feature)
         dates = strategy.get_dates()
 
