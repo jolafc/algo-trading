@@ -1,23 +1,18 @@
 import numpy as np
 import pandas as pd
 
-from exp import SP500_PKL
-from exp.data_getter import load_pickled_dict
-from exp.strategy.weekly_rotation import WeeklyRotationRunner
+from exp.strategy.weekly_rotation import weekly_rotation_runner_facotry
 
 REFERENCE_YIELD = 0.13514657590506485
 REFERENCE_SHARPE = 0.8992035532340469
 
 
 def test_weekly_rotation():
-    data_by_ticker = load_pickled_dict(pkl_file=SP500_PKL)
-
-    runner = WeeklyRotationRunner(start_date_requested=pd.to_datetime('2019-01-31'),
-                                  end_date_requested=pd.to_datetime('2019-10-31'),
-                                  lookback=200,
-                                  verbose=False)
-    runner.fit(X=data_by_ticker)
-    results = runner.results
+    runner = weekly_rotation_runner_facotry(start_date_requested=pd.to_datetime('2019-01-31'),
+                                            end_date_requested=pd.to_datetime('2019-10-31'),
+                                            max_lookback=200,
+                                            verbose=False)
+    results = runner()
 
     assert np.isclose(results["annualized_yield"], REFERENCE_YIELD, atol=1e-8), \
         f'Yield is {results["annualized_yield"]}  but should be {REFERENCE_YIELD}'

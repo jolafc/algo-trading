@@ -1,7 +1,7 @@
 from timeit import default_timer as timer
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import ta.momentum
 from sklearn.base import BaseEstimator
 
@@ -9,16 +9,20 @@ from exp import SP500_PKL
 from exp.backtesting import Backtesting
 from exp.data_getter import load_pickled_dict
 from exp.data_loader import get_feature, slice_backtesting_window
-from exp.reporting import make_backtesting_report
-
 from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT_START_BALANCE
+from exp.reporting import make_backtesting_report
 
 
 ### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
 ### TODO: Need to (re)-implement the RSI/EMA indicators.
 ### TODO: Forward pad: limit the number of padded values
-### TODO: The price for the execution is currently the price for the decision making; maybe the next day open instead?
 ### TODO: Ticker changes, merger, acquisitions, and bankrupcies: currently selling at the buy price, to prevent automl to pick up on those errors.
+### TODO: Use a multi-columns levels DF as single data source and put the data loading stuff outside the WRRunner class.
+#         Then put the fit method contents in the predict(X), where predict expects a scile of that multi-columns DF.
+#         The score(X, y=None) then calls predict(X) and returns the yield only - like the current one does with the fit.
+#         Conccern: isn't averaging accross folds the same as optimizing over a larger window?
+#         Since train/validation split is meaningless here (no train); isn't it worthless to have an Estimator score
+#         being optimized instead of a single function output, without any explicit data handling by the HPO?
 
 
 # Backtesting loop.
@@ -40,6 +44,7 @@ from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT
 # 12 - Use the open, high and low of the next day when executing trades in backtesting, to get more meaningful
 #      estimate and confidence interval.
 #    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
+# 13 - HPO: do function optimization (in-sample)
 
 
 class WeelkyRotation(BaseEstimator):
@@ -123,93 +128,91 @@ class WeelkyRotation(BaseEstimator):
         return self.positions_list.index
 
 
-class WeeklyRotationRunner(BaseEstimator):
+def weekly_rotation_runner_facotry(start_date_requested=pd.to_datetime('2019-01-31'),
+                                   end_date_requested=pd.to_datetime('2019-10-31'),
+                                   max_lookback=200,
+                                   start_balance=DEFAULT_START_BALANCE,
+                                   verbose=True,
+                                   output_metric=None):
+    data_by_ticker = load_pickled_dict(pkl_file=SP500_PKL)
 
-    def __init__(self,
-                 start_date_requested=pd.to_datetime('2019-01-31'),
-                 end_date_requested=pd.to_datetime('2019-10-31'),
-                 lookback=200,
-                 start_balance=DEFAULT_START_BALANCE,
-                 verbose=True,
-                 sma_tol=0.02,
-                 volume_lookback=20,
-                 volume_threshold=1e6,
-                 price_min=1.,
-                 rsi_lookback=3,
-                 rsi_threshold=50.,
-                 day_of_trade=4,
-                 n_positions=10):
-        self.start_date_requested = start_date_requested
-        self.end_date_requested = end_date_requested
-        self.lookback = lookback
-        self.start_balance = start_balance
-        self.verbose = verbose
-        self.sma_tol = sma_tol
-        self.volume_lookback = volume_lookback
-        self.volume_threshold = volume_threshold
-        self.price_min = price_min
-        self.rsi_lookback = rsi_lookback
-        self.rsi_threshold = rsi_threshold
-        self.day_of_trade = day_of_trade
-        self.n_positions = n_positions
+    data_by_feature = {}
+    data_by_feature[ADJUSTED_CLOSE_COLUMN] = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN,
+                                                         debug=False, impute=False, verbose=verbose)
+    data_by_feature[VOLUME_COLUMN] = get_feature(data_by_ticker, column=VOLUME_COLUMN,
+                                                 debug=False, impute=False, verbose=verbose)
+    data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
+                                                                       start_date_requested=start_date_requested,
+                                                                       end_date_requested=end_date_requested,
+                                                                       lookback=max_lookback,
+                                                                       verbose=verbose)
 
-    def fit(self, X, y=None):
+    prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
+
+    def weekly_roration_runner(lookback=200,
+                               sma_tol=0.02,
+                               volume_lookback=20,
+                               volume_threshold=1e6,
+                               price_min=1.,
+                               rsi_lookback=3,
+                               rsi_threshold=50.,
+                               day_of_trade=4,
+                               n_positions=10):
+        assert lookback <= max_lookback, f'lookback={lookback} should be smaller than max_lookback={max_lookback}.'
+
         time = timer()
-
-        data_by_feature = {}
-        data_by_feature[ADJUSTED_CLOSE_COLUMN] = get_feature(X, column=ADJUSTED_CLOSE_COLUMN,
-                                                             debug=False, impute=False, verbose=self.verbose)
-        data_by_feature[VOLUME_COLUMN] = get_feature(X, column=VOLUME_COLUMN,
-                                                     debug=False, impute=False, verbose=self.verbose)
-        data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
-                                                                           start_date_requested=self.start_date_requested,
-                                                                           end_date_requested=self.end_date_requested,
-                                                                           lookback=self.lookback,
-                                                                           verbose=self.verbose)
-
-        prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
 
         strategy = WeelkyRotation(start_date=start_date,
                                   end_date=end_date,
-                                  lookback=self.lookback,
+                                  lookback=lookback,
 
-                                  sma_tol=self.sma_tol,
-                                  volume_lookback=self.volume_lookback,
-                                  volume_threshold=self.volume_threshold,
-                                  price_min=self.price_min,
-                                  rsi_lookback=self.rsi_lookback,
-                                  rsi_threshold=self.rsi_threshold,
-                                  day_of_trade=self.day_of_trade,
-                                  n_positions=self.n_positions)
+                                  sma_tol=sma_tol,
+                                  volume_lookback=volume_lookback,
+                                  volume_threshold=volume_threshold,
+                                  price_min=price_min,
+                                  rsi_lookback=rsi_lookback,
+                                  rsi_threshold=rsi_threshold,
+                                  day_of_trade=day_of_trade,
+                                  n_positions=n_positions)
         strategy.fit(data_by_feature=data_by_feature)
         dates = strategy.get_dates()
 
-        backtesting = Backtesting(start_balance=self.start_balance)
+        backtesting = Backtesting(start_balance=start_balance)
         backtesting.fit(strategy=strategy, prices=prices, dates=dates)
 
-        self.results = make_backtesting_report(backtesting=backtesting, prices=prices, dates=dates,
-                                               verbose=self.verbose, plotting=self.verbose)
+        results = make_backtesting_report(backtesting=backtesting, prices=prices, dates=dates,
+                                          verbose=verbose, plotting=verbose)
 
         time = timer() - time
-        if self.verbose:
+        if verbose:
             print(f'\nBacktesting time: {time:.3f} s.')
 
-        return self
+        if output_metric is None:
+            output = results
+        else:
+            output = results[output_metric]
 
-    def score(self, x_test=None, y_test=None):
-        return self.results["annualized_yield"]
+        return output
+
+    return weekly_roration_runner
 
 
 if __name__ == '__main__':
-    data_by_ticker = load_pickled_dict(pkl_file=SP500_PKL)
-
-    runner = WeeklyRotationRunner(start_date_requested=pd.to_datetime('2019-01-31'),  # '2000-11-19'
-                                  end_date_requested=pd.to_datetime('2019-10-31'),  # '2019-11-22'
-                                  lookback=200,
-                                  verbose=True)
-    runner.fit(X=data_by_ticker)
+    runner = weekly_rotation_runner_facotry(start_date_requested=pd.to_datetime('2019-01-31'),  # '2000-11-19'
+                                            end_date_requested=pd.to_datetime('2019-10-31'),  # '2019-11-22'
+                                            max_lookback=200,
+                                            verbose=True,
+                                            output_metric='annualized_yield')
+    annualized_yield = runner(lookback=200,
+                              sma_tol=0.02,
+                              volume_lookback=20,
+                              volume_threshold=1e6,
+                              price_min=1.,
+                              rsi_lookback=3,
+                              rsi_threshold=50.,
+                              day_of_trade=4,
+                              n_positions=10)
 
     REFERENCE_YIELD = 0.13514657590506485
-    annualized_yield = runner.score()
     assert np.isclose(annualized_yield, REFERENCE_YIELD, atol=1e-8), \
         f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
