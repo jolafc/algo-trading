@@ -241,7 +241,7 @@ class WeeklyRotationRunner(object):
 if __name__ == '__main__':
     chkpt_file = CHKPT_DEFAULT_FILE
     restart_from_chkpt = True
-    n_calls = 100
+    n_calls = 0
 
     runner = WeeklyRotationRunner(start_date_requested=pd.to_datetime('2019-01-31'),  # '2000-11-19'
                                   end_date_requested=pd.to_datetime('2019-10-31'),  # '2019-11-22'
@@ -270,3 +270,13 @@ if __name__ == '__main__':
 
     print(f'HPO results: {hpo_results}.')
     print(f'Optimal yield is: {hpo_results.fun} at parameters {hpo_results.x}')
+
+    runner.verbose = True
+    kwargs = {k: v for k, v in zip(runner.dimensions.keys(), hpo_results.x)}
+    runner(**kwargs)
+
+    runner.start_date_requested = pd.to_datetime(f'2010-01-01')
+    runner(**kwargs)
+
+    runner.start_date_requested = pd.to_datetime(f'2001-01-01')
+    runner(**kwargs)
