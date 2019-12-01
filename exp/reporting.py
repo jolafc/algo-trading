@@ -31,6 +31,7 @@ def make_backtesting_report(backtesting, prices, dates=None, verbose=True, plott
     annualized_yield = get_annualized_yield(unrealized_pl=unrealized_pl, start_balance=start_balance)
     sharpe_ratio = get_sharpe_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
     sortino_ratio = get_sortino_ratio(unrealized_pl=unrealized_pl, start_balance=start_balance)
+    benchmark_realized_pl = benckmark_pl.sum()
     benchmark_annualized_yield = get_annualized_yield(unrealized_pl=benckmark_pl, start_balance=start_balance)
     benchmark_sharpe_ratio = get_sharpe_ratio(unrealized_pl=benckmark_pl, start_balance=start_balance)
     benchmark_sortino_ratio = get_sortino_ratio(unrealized_pl=benckmark_pl, start_balance=start_balance)
@@ -61,6 +62,11 @@ def make_backtesting_report(backtesting, prices, dates=None, verbose=True, plott
     results = {'realized_pl': realized_pl,
                'annualized_yield': annualized_yield,
                'sharpe_ratio': sharpe_ratio,
-               'sortino_ratio': sortino_ratio}
+               'sortino_ratio': sortino_ratio,
+               'benchmark_realized_pl': benchmark_realized_pl,
+               'benchmark_annualized_yield': benchmark_annualized_yield,
+               'benchmark_sharpe_ratio': benchmark_sharpe_ratio,
+               'benchmark_sortino_ratio': benchmark_sortino_ratio,
+               }
 
     return results
