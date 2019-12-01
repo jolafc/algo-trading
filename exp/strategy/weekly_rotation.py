@@ -15,17 +15,20 @@ from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT
 from exp.reporting import make_backtesting_report
 
 
-### Backlog
-### TODO: Ticker changes, merger, acquisitions, and bankrupcies: currently selling at the buy price, to prevent automl to pick up on those errors.
-### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
-### TODO: Forward pad: limit the number of padded values
-### TODO: Need to (re)-implement the RSI/EMA indicators.
-### TODO: Use a multi-columns levels DF as single data source and put the data loading stuff outside the WRRunner class.
-#         Then put the fit method contents in the predict(X), where predict expects a scile of that multi-columns DF.
-#         The score(X, y=None) then calls predict(X) and returns the yield only - like the current one does with the fit.
-#         Concern: isn't averaging accross folds the same as optimizing over a larger window?
-#         Since train/validation split is meaningless here (no train); isn't it worthless to have an Estimator score
-#         being optimized instead of a single function output, without any explicit data handling by the HPO?
+# Backlog
+# TODO: Ticker changes, merger, acquisitions, and bankrupcies: currently selling at the buy price, to prevent automl
+#       to pick up on those errors.
+# TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
+# TODO: Forward pad: limit the number of padded values
+# TODO: Need to (re)-implement the RSI/EMA indicators.
+# TODO: Use a multi-columns levels DF as single data source and put the data loading stuff outside the WRRunner
+#       class.
+#       Then put the fit method contents in the predict(X), where predict expects a scile of that multi-columns DF.
+#       The score(X, y=None) then calls predict(X) and returns the yield only - like the current one does with the
+#       fit.
+#       Concern: isn't averaging accross folds the same as optimizing over a larger window?
+#       Since train/validation split is meaningless here (no train); isn't it worthless to have an Estimator score
+#       being optimized instead of a single function output, without any explicit data handling by the HPO?
 
 
 # Current sprint tasks:
@@ -49,7 +52,6 @@ from exp.reporting import make_backtesting_report
 #    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
 # V 13 - HPO: do function optimization (in-sample) with random search (baseline)
 # 14 - HPO: Bayesian for production, encapsulation, parallelism, share loaded data (?)
-
 
 class WeelkyRotationStrategy(BaseEstimator):
 
