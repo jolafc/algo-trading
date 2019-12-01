@@ -3,7 +3,7 @@ import os
 import pandas as pd
 from matplotlib import pyplot as plt
 
-from exp import DATA_DIR, PLT_FILE_FORMAT
+from exp import PLT_FILE_FORMAT, RESULTS_DIR
 from exp.default_parameters import ADJUSTED_CLOSE_COLUMN
 
 
@@ -34,7 +34,7 @@ def report_nans(df, feature_name=ADJUSTED_CLOSE_COLUMN, verbose=True):
     n_nans = df.isna().sum(axis=0).sort_values(ascending=False)
 
     df.isna().sum(axis=1).plot()
-    plotfile = os.path.join(DATA_DIR, f'Nans_{feature_name}.{PLT_FILE_FORMAT}')
+    plotfile = os.path.join(RESULTS_DIR, f'Nans_{feature_name}.{PLT_FILE_FORMAT}')
     plt.savefig(plotfile)
 
     if verbose:

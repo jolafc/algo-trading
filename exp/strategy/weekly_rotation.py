@@ -1,3 +1,4 @@
+import os
 from collections import OrderedDict
 from timeit import default_timer as timer
 
@@ -7,7 +8,7 @@ import skopt
 import ta.momentum
 from sklearn.base import BaseEstimator
 
-from exp import SP500_PKL
+from exp import SP500_PKL, SEED, CHKPT_DEFAULT_FILE
 from exp.backtesting import Backtesting
 from exp.data_getter import load_pickled_dict
 from exp.data_loader import get_feature, slice_backtesting_window
@@ -153,6 +154,17 @@ class WeeklyRotationRunner(object):
         self.start_balance = start_balance
         self.verbose = verbose
         self.output_metric = output_metric
+        self.dimensions = OrderedDict(
+            lookback=skopt.space.Real(low=1, high=self.max_lookback, prior='log-uniform', name='lookback'),
+            sma_tol=skopt.space.Real(low=-0.10, high=0.20, name='sma_tol'),
+            volume_lookback=skopt.space.Real(low=1, high=self.max_lookback, prior='log-uniform', name='volume_lookback'),
+            volume_threshold=skopt.space.Real(low=1., high=1.e8, prior='log-uniform', name='volume_threshold'),
+            price_min=skopt.space.Real(low=0.1, high=200., prior='log-uniform', name='price_min'),
+            rsi_lookback=skopt.space.Real(low=1, high=10, prior='log-uniform', name='rsi_lookback'),
+            rsi_threshold=skopt.space.Real(low=40., high=60., name='rsi_threshold'),
+            day_of_trade=skopt.space.Categorical(categories=[0, 1, 2, 3, 4], transform='identity', name='day_of_trade'),
+            n_positions=skopt.space.Real(low=1, high=50, prior='log-uniform', name='n_positions'),
+        )
 
     def __call__(self,
                  lookback=200,
@@ -217,46 +229,43 @@ class WeeklyRotationRunner(object):
         return output
 
     def skopt_func(self, x):
-        assert len(x) == 9, f'Expected a list of 9 kwargs, received instead len={len(x)}'
+        assert len(x) == len(self.dimensions), \
+            f'Expected a list of {len(self.dimensions)} kwargs, received instead len={len(x)}'
+
+        kwargs = {k: v for k, v in zip(self.dimensions.keys(), x)}
+        metric = self(**kwargs)
         sign = self.signs[self.output_metric]
-        metric = self(lookback=x[0],
-                      sma_tol=x[1],
-                      volume_lookback=x[2],
-                      volume_threshold=x[3],
-                      price_min=x[4],
-                      rsi_lookback=x[5],
-                      rsi_threshold=x[6],
-                      day_of_trade=x[7],
-                      n_positions=x[8])
         return sign * metric
 
 
 if __name__ == '__main__':
+    chkpt_file = CHKPT_DEFAULT_FILE
+    restart_from_chkpt = False
+
     runner = WeeklyRotationRunner(start_date_requested=pd.to_datetime('2019-01-31'),  # '2000-11-19'
                                   end_date_requested=pd.to_datetime('2019-10-31'),  # '2019-11-22'
                                   max_lookback=200,
                                   verbose=False,
                                   output_metric='annualized_yield')
 
-    annualized_yield = runner()
-    REFERENCE_YIELD = 0.13514657590506485
-    assert np.isclose(annualized_yield, REFERENCE_YIELD, atol=1e-8), \
-        f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
+    dimensions_list = list(runner.dimensions.values())
 
-    dimensions = OrderedDict(
-        lookback=skopt.space.Real(low=1, high=runner.max_lookback, prior='log-uniform', name='lookback'),
-        sma_tol=skopt.space.Real(low=-0.10, high=0.20, name='sma_tol'),
-        volume_lookback=skopt.space.Real(low=1, high=runner.max_lookback, prior='log-uniform', name='volume_lookback'),
-        volume_threshold=skopt.space.Real(low=1., high=1.e8, prior='log-uniform', name='volume_threshold'),
-        price_min=skopt.space.Real(low=0.1, high=200., prior='log-uniform', name='price_min'),
-        rsi_lookback=skopt.space.Real(low=1, high=10, prior='log-uniform', name='rsi_lookback'),
-        rsi_threshold=skopt.space.Real(low=40., high=60., name='rsi_threshold'),
-        day_of_trade=skopt.space.Categorical(categories=[0, 1, 2, 3, 4], transform='identity', name='day_of_trade'),
-        n_positions=skopt.space.Real(low=1, high=50, prior='log-uniform', name='n_positions'),
-    )
+    checkpoint_saver = skopt.callbacks.CheckpointSaver(chkpt_file, compress=3)
+    if os.path.exists(chkpt_file) and restart_from_chkpt:
+        res = skopt.load(chkpt_file)
+        x0 = res.x_iters
+        y0 = res.func_vals
+        n_random_starts = 0
+    else:
+        x0 = None
+        y0 = None
+        n_random_starts = 5
 
-    dimensions_list = list(dimensions.values())
-    hpo_results = skopt.dummy_minimize(func=runner.skopt_func, dimensions=dimensions_list, n_calls=10, verbose=True)
+    hpo_results = skopt.forest_minimize(func=runner.skopt_func, dimensions=dimensions_list,
+                                        n_calls=10, n_random_starts=n_random_starts,
+                                        base_estimator='ET', acq_func='EI',
+                                        x0=x0, y0=y0, random_state=SEED, verbose=True, callback=[checkpoint_saver],
+                                        n_points=10000, xi=0.01, kappa=1.96, n_jobs=1)
 
     print(f'HPO results: {hpo_results}.')
     print(f'Optimal yield is: {hpo_results.fun} at parameters {hpo_results.x}')

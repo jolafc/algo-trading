@@ -2,7 +2,7 @@ import os
 
 from matplotlib import pyplot as plt
 
-from exp import DATA_DIR, PLT_FILE_FORMAT
+from exp import PLT_FILE_FORMAT, RESULTS_DIR
 from exp.data_getter import av_query
 
 
@@ -13,7 +13,7 @@ def test_av_query(symbol='MSFT'):
 
     print(f'Price DF shape: {price_df.shape}')
     price_df['adjusted_close'].plot()
-    plotfile = os.path.join(DATA_DIR, f'{symbol}_data.{PLT_FILE_FORMAT}')
+    plotfile = os.path.join(RESULTS_DIR, f'{symbol}_data.{PLT_FILE_FORMAT}')
     plt.savefig(plotfile)
     print(f'Plotted price history data for {symbol} in {plotfile}')
 
