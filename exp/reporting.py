@@ -9,7 +9,7 @@ from exp.default_parameters import BENCKMARK_TICKER
 from exp.metrics import get_ib_fees, get_annualized_yield, get_sharpe_ratio, get_sortino_ratio
 
 
-def make_backtesting_report(backtesting, prices, dates=None, verbose=True, plotting=True):
+def make_backtesting_report(backtesting, prices, dates=None, verbose=True, plotting=True, plotname=f'unrealized_pl'):
     assert isinstance(backtesting, Backtesting), \
         f'This function requires an instance of the Backtesting class to work.'
     trades_df, positions_df, errors_df = backtesting.get_trades()
@@ -53,7 +53,7 @@ def make_backtesting_report(backtesting, prices, dates=None, verbose=True, plott
         plt.plot(xlim, [0.] * 2, '--k')
         plt.title(f'Strategy performance')
         plt.legend()
-        plotfile = os.path.join(RESULTS_DIR, f'unrealized_pl.{PLT_FILE_FORMAT}')
+        plotfile = os.path.join(RESULTS_DIR, f'{plotname}.{PLT_FILE_FORMAT}')
         plt.savefig(plotfile)
         if verbose:
             print(f'\nPlotted unrealized P&L to file: {plotfile}')

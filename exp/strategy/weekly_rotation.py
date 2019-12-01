@@ -1,14 +1,12 @@
-import os
 from collections import OrderedDict
 from timeit import default_timer as timer
 
-import numpy as np
 import pandas as pd
-import skopt
 import ta.momentum
 from sklearn.base import BaseEstimator
+import skopt
 
-from exp import SP500_PKL, SEED, CHKPT_DEFAULT_FILE
+from exp import SP500_PKL
 from exp.backtesting import Backtesting
 from exp.data_getter import load_pickled_dict
 from exp.data_loader import get_feature, slice_backtesting_window
@@ -17,7 +15,7 @@ from exp.reporting import make_backtesting_report
 
 
 # Backlog
-# TODO: Ticker changes, merger, acquisitions, and bankrupcies: currently selling at the buy price, to prevent automl
+# TODO: Ticker changes, merger, acquisitions, and bankruptcies: currently selling at the buy price, to prevent automl
 #       to pick up on those errors.
 # TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
 # TODO: Forward pad: limit the number of padded values
@@ -27,7 +25,7 @@ from exp.reporting import make_backtesting_report
 #       Then put the fit method contents in the predict(X), where predict expects a scile of that multi-columns DF.
 #       The score(X, y=None) then calls predict(X) and returns the yield only - like the current one does with the
 #       fit.
-#       Concern: isn't averaging accross folds the same as optimizing over a larger window?
+#       Concern: isn't averaging across folds the same as optimizing over a larger window?
 #       Since train/validation split is meaningless here (no train); isn't it worthless to have an Estimator score
 #       being optimized instead of a single function output, without any explicit data handling by the HPO?
 
@@ -52,7 +50,11 @@ from exp.reporting import make_backtesting_report
 #      estimate and confidence interval.
 #    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
 # V 13 - HPO: do function optimization (in-sample) with random search (baseline)
-# 14 - HPO: Bayesian for production, encapsulation, parallelism, share loaded data (?)
+# V 14a - HPO: Bayesian for production, chkpt save/load,
+# V 14b - HPO: encapsulation,
+# 14c - HPO: parallelism, share loaded data (?)
+# 15 - Out-of-sample metrics: Need a rolling window of validation (train) data -> parameters -> (validation) set run
+#      for tuning the skopt opt. parameters, then a true (test) set result (like 2019 year).
 
 class WeelkyRotationStrategy(BaseEstimator):
 
@@ -217,8 +219,23 @@ class WeeklyRotationRunner(object):
         backtesting = Backtesting(start_balance=self.start_balance)
         backtesting.fit(strategy=strategy, prices=prices, dates=dates)
 
+        kwargs = OrderedDict(
+            start_date=start_date.date(),
+            end_date=end_date.date(),
+            max_lookback=self.max_lookback,
+            lookback=lookback,
+            rsi_lookback=rsi_lookback,
+            rsi_threshold=f'{rsi_threshold:.1f}',
+            day_of_trade=day_of_trade,
+            sma_tol=f'{sma_tol:.3f}',
+            volume_lookback=volume_lookback,
+            volume_threshold=f'{volume_threshold:.1f}',
+            price_min=f'{price_min:.1f}',
+            n_positions=n_positions,
+        )
+        plotname = f'unrealized_pl__' + '__'.join([f'{k}_{v}' for k, v in kwargs.items()])
         results = make_backtesting_report(backtesting=backtesting, prices=prices, dates=dates,
-                                          verbose=self.verbose, plotting=self.verbose)
+                                          verbose=self.verbose, plotting=self.verbose, plotname=plotname)
 
         time = timer() - time
         if self.verbose:
@@ -236,47 +253,3 @@ class WeeklyRotationRunner(object):
         metric = self(**kwargs)
         sign = self.signs[self.output_metric]
         return sign * metric
-
-
-if __name__ == '__main__':
-    chkpt_file = CHKPT_DEFAULT_FILE
-    restart_from_chkpt = True
-    n_calls = 0
-
-    runner = WeeklyRotationRunner(start_date_requested=pd.to_datetime('2019-01-31'),  # '2000-11-19'
-                                  end_date_requested=pd.to_datetime('2019-10-31'),  # '2019-11-22'
-                                  max_lookback=200,
-                                  verbose=False,
-                                  output_metric='annualized_yield')
-
-    dimensions_list = list(runner.dimensions.values())
-
-    checkpoint_saver = skopt.callbacks.CheckpointSaver(chkpt_file, compress=3)
-    if os.path.exists(chkpt_file) and restart_from_chkpt:
-        res = skopt.load(chkpt_file)
-        x0 = res.x_iters
-        y0 = res.func_vals
-        n_random_starts = 0
-    else:
-        x0 = None
-        y0 = None
-        n_random_starts = 5
-
-    hpo_results = skopt.forest_minimize(func=runner.skopt_func, dimensions=dimensions_list,
-                                        n_calls=n_calls, n_random_starts=n_random_starts,
-                                        base_estimator='ET', acq_func='EI',
-                                        x0=x0, y0=y0, random_state=SEED, verbose=True, callback=[checkpoint_saver],
-                                        n_points=10000, xi=0.01, kappa=1.96, n_jobs=1)
-
-    print(f'HPO results: {hpo_results}.')
-    print(f'Optimal yield is: {hpo_results.fun} at parameters {hpo_results.x}')
-
-    runner.verbose = True
-    kwargs = {k: v for k, v in zip(runner.dimensions.keys(), hpo_results.x)}
-    runner(**kwargs)
-
-    runner.start_date_requested = pd.to_datetime(f'2010-01-01')
-    runner(**kwargs)
-
-    runner.start_date_requested = pd.to_datetime(f'2001-01-01')
-    runner(**kwargs)
