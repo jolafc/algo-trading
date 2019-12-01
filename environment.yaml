@@ -8,6 +8,7 @@ dependencies:
 #  - zipline  # Currently (1.3.0) needs manual edits to zipline/data/benchmarks.py so that it includes the fix here: https://github.com/quantopian/zipline/issues/2480
   - tensorflow =2.0.0
   - scikit-learn
+  - scikit-optimize
   - pandas
   - matplotlib
   - jupyter

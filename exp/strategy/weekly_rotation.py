@@ -1,7 +1,9 @@
+from collections import OrderedDict
 from timeit import default_timer as timer
 
 import numpy as np
 import pandas as pd
+import skopt
 import ta.momentum
 from sklearn.base import BaseEstimator
 
@@ -13,19 +15,20 @@ from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT
 from exp.reporting import make_backtesting_report
 
 
-### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
-### TODO: Need to (re)-implement the RSI/EMA indicators.
-### TODO: Forward pad: limit the number of padded values
+### Backlog
 ### TODO: Ticker changes, merger, acquisitions, and bankrupcies: currently selling at the buy price, to prevent automl to pick up on those errors.
+### TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
+### TODO: Forward pad: limit the number of padded values
+### TODO: Need to (re)-implement the RSI/EMA indicators.
 ### TODO: Use a multi-columns levels DF as single data source and put the data loading stuff outside the WRRunner class.
 #         Then put the fit method contents in the predict(X), where predict expects a scile of that multi-columns DF.
 #         The score(X, y=None) then calls predict(X) and returns the yield only - like the current one does with the fit.
-#         Conccern: isn't averaging accross folds the same as optimizing over a larger window?
+#         Concern: isn't averaging accross folds the same as optimizing over a larger window?
 #         Since train/validation split is meaningless here (no train); isn't it worthless to have an Estimator score
 #         being optimized instead of a single function output, without any explicit data handling by the HPO?
 
 
-# Backtesting loop.
+# Current sprint tasks:
 # V 1 - Positions dataframe with buy price+date
 # V 2 - Trades dataframe with positions df columns + sell price+date+fees.
 # V   - Sells are first removed from the positions and added to the trades. Then buys are added to positions.
@@ -44,10 +47,11 @@ from exp.reporting import make_backtesting_report
 # 12 - Use the open, high and low of the next day when executing trades in backtesting, to get more meaningful
 #      estimate and confidence interval.
 #    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
-# 13 - HPO: do function optimization (in-sample)
+# V 13 - HPO: do function optimization (in-sample) with random search (baseline)
+# 14 - HPO: Bayesian for production, encapsulation, parallelism, share loaded data (?)
 
 
-class WeelkyRotation(BaseEstimator):
+class WeelkyRotationStrategy(BaseEstimator):
 
     def __init__(self,
                  start_date=None,
@@ -128,91 +132,129 @@ class WeelkyRotation(BaseEstimator):
         return self.positions_list.index
 
 
-def weekly_rotation_runner_facotry(start_date_requested=pd.to_datetime('2019-01-31'),
-                                   end_date_requested=pd.to_datetime('2019-10-31'),
-                                   max_lookback=200,
-                                   start_balance=DEFAULT_START_BALANCE,
-                                   verbose=True,
-                                   output_metric=None):
-    data_by_ticker = load_pickled_dict(pkl_file=SP500_PKL)
+class WeeklyRotationRunner(object):
+    signs = {'realized_pl': -1,
+             'annualized_yield': -1,
+             'sharpe_ratio': -1,
+             'sortino_ratio': -1}
 
-    data_by_feature = {}
-    data_by_feature[ADJUSTED_CLOSE_COLUMN] = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN,
-                                                         debug=False, impute=False, verbose=verbose)
-    data_by_feature[VOLUME_COLUMN] = get_feature(data_by_ticker, column=VOLUME_COLUMN,
-                                                 debug=False, impute=False, verbose=verbose)
-    data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
-                                                                       start_date_requested=start_date_requested,
-                                                                       end_date_requested=end_date_requested,
-                                                                       lookback=max_lookback,
-                                                                       verbose=verbose)
+    def __init__(self,
+                 start_date_requested=pd.to_datetime('2019-01-31'),
+                 end_date_requested=pd.to_datetime('2019-10-31'),
+                 max_lookback=200,
+                 start_balance=DEFAULT_START_BALANCE,
+                 verbose=True,
+                 output_metric=None):
+        self.start_date_requested = start_date_requested
+        self.end_date_requested = end_date_requested
+        self.max_lookback = max_lookback
+        self.start_balance = start_balance
+        self.verbose = verbose
+        self.output_metric = output_metric
 
-    prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
-
-    def weekly_roration_runner(lookback=200,
-                               sma_tol=0.02,
-                               volume_lookback=20,
-                               volume_threshold=1e6,
-                               price_min=1.,
-                               rsi_lookback=3,
-                               rsi_threshold=50.,
-                               day_of_trade=4,
-                               n_positions=10):
-        assert lookback <= max_lookback, f'lookback={lookback} should be smaller than max_lookback={max_lookback}.'
+    def __call__(self,
+                 lookback=200,
+                 sma_tol=0.02,
+                 volume_lookback=20,
+                 volume_threshold=1e6,
+                 price_min=1.,
+                 rsi_lookback=3,
+                 rsi_threshold=50.,
+                 day_of_trade=4,
+                 n_positions=10):
+        lookback = int(lookback)
+        volume_lookback = int(volume_lookback)
+        rsi_lookback = int(rsi_lookback)
+        n_positions = int(n_positions)
+        assert lookback <= self.max_lookback, f'lookback={lookback} should be smaller than max_lookback={self.max_lookback}.'
 
         time = timer()
 
-        strategy = WeelkyRotation(start_date=start_date,
-                                  end_date=end_date,
-                                  lookback=lookback,
+        data_by_ticker = load_pickled_dict(pkl_file=SP500_PKL)
 
-                                  sma_tol=sma_tol,
-                                  volume_lookback=volume_lookback,
-                                  volume_threshold=volume_threshold,
-                                  price_min=price_min,
-                                  rsi_lookback=rsi_lookback,
-                                  rsi_threshold=rsi_threshold,
-                                  day_of_trade=day_of_trade,
-                                  n_positions=n_positions)
+        data_by_feature = {}
+        data_by_feature[ADJUSTED_CLOSE_COLUMN] = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN,
+                                                             debug=False, impute=False, verbose=self.verbose)
+        data_by_feature[VOLUME_COLUMN] = get_feature(data_by_ticker, column=VOLUME_COLUMN,
+                                                     debug=False, impute=False, verbose=self.verbose)
+        data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
+                                                                           start_date_requested=self.start_date_requested,
+                                                                           end_date_requested=self.end_date_requested,
+                                                                           lookback=self.max_lookback,
+                                                                           verbose=self.verbose)
+
+        prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
+
+        strategy = WeelkyRotationStrategy(start_date=start_date,
+                                          end_date=end_date,
+                                          lookback=lookback,
+
+                                          sma_tol=sma_tol,
+                                          volume_lookback=volume_lookback,
+                                          volume_threshold=volume_threshold,
+                                          price_min=price_min,
+                                          rsi_lookback=rsi_lookback,
+                                          rsi_threshold=rsi_threshold,
+                                          day_of_trade=day_of_trade,
+                                          n_positions=n_positions)
         strategy.fit(data_by_feature=data_by_feature)
         dates = strategy.get_dates()
 
-        backtesting = Backtesting(start_balance=start_balance)
+        backtesting = Backtesting(start_balance=self.start_balance)
         backtesting.fit(strategy=strategy, prices=prices, dates=dates)
 
         results = make_backtesting_report(backtesting=backtesting, prices=prices, dates=dates,
-                                          verbose=verbose, plotting=verbose)
+                                          verbose=self.verbose, plotting=self.verbose)
 
         time = timer() - time
-        if verbose:
+        if self.verbose:
             print(f'\nBacktesting time: {time:.3f} s.')
 
-        if output_metric is None:
-            output = results
-        else:
-            output = results[output_metric]
+        output = results if self.output_metric is None else results[self.output_metric]
 
         return output
 
-    return weekly_roration_runner
+    def skopt_func(self, x):
+        assert len(x) == 9, f'Expected a list of 9 kwargs, received instead len={len(x)}'
+        sign = self.signs[self.output_metric]
+        metric = self(lookback=x[0],
+                      sma_tol=x[1],
+                      volume_lookback=x[2],
+                      volume_threshold=x[3],
+                      price_min=x[4],
+                      rsi_lookback=x[5],
+                      rsi_threshold=x[6],
+                      day_of_trade=x[7],
+                      n_positions=x[8])
+        return sign * metric
 
 
 if __name__ == '__main__':
-    runner = weekly_rotation_runner_facotry(start_date_requested=pd.to_datetime('2019-01-31'),  # '2000-11-19'
-                                            end_date_requested=pd.to_datetime('2019-10-31'),  # '2019-11-22'
-                                            max_lookback=200,
-                                            verbose=True,
-                                            output_metric='annualized_yield')
-    annualized_yield = runner(lookback=200,
-                              sma_tol=0.02,
-                              volume_lookback=20,
-                              volume_threshold=1e6,
-                              price_min=1.,
-                              rsi_lookback=3,
-                              rsi_threshold=50.,
-                              day_of_trade=4,
-                              n_positions=10)
+    runner = WeeklyRotationRunner(start_date_requested=pd.to_datetime('2019-01-31'),  # '2000-11-19'
+                                  end_date_requested=pd.to_datetime('2019-10-31'),  # '2019-11-22'
+                                  max_lookback=200,
+                                  verbose=False,
+                                  output_metric='annualized_yield')
 
+    annualized_yield = runner()
     REFERENCE_YIELD = 0.13514657590506485
     assert np.isclose(annualized_yield, REFERENCE_YIELD, atol=1e-8), \
         f'Yield is {annualized_yield}  but should be {REFERENCE_YIELD}'
+
+    dimensions = OrderedDict(
+        lookback=skopt.space.Real(low=1, high=runner.max_lookback, prior='log-uniform', name='lookback'),
+        sma_tol=skopt.space.Real(low=-0.10, high=0.20, name='sma_tol'),
+        volume_lookback=skopt.space.Real(low=1, high=runner.max_lookback, prior='log-uniform', name='volume_lookback'),
+        volume_threshold=skopt.space.Real(low=1., high=1.e8, prior='log-uniform', name='volume_threshold'),
+        price_min=skopt.space.Real(low=0.1, high=200., prior='log-uniform', name='price_min'),
+        rsi_lookback=skopt.space.Real(low=1, high=10, prior='log-uniform', name='rsi_lookback'),
+        rsi_threshold=skopt.space.Real(low=40., high=60., name='rsi_threshold'),
+        day_of_trade=skopt.space.Categorical(categories=[0, 1, 2, 3, 4], transform='identity', name='day_of_trade'),
+        n_positions=skopt.space.Real(low=1, high=50, prior='log-uniform', name='n_positions'),
+    )
+
+    dimensions_list = list(dimensions.values())
+    hpo_results = skopt.dummy_minimize(func=runner.skopt_func, dimensions=dimensions_list, n_calls=10, verbose=True)
+
+    print(f'HPO results: {hpo_results}.')
+    print(f'Optimal yield is: {hpo_results.fun} at parameters {hpo_results.x}')
