@@ -155,15 +155,15 @@ class WeeklyRotationRunner(object):
         self.verbose = verbose
         self.output_metric = output_metric
         self.dimensions = OrderedDict(
-            lookback=skopt.space.Real(low=1, high=self.max_lookback, prior='log-uniform', name='lookback'),
-            sma_tol=skopt.space.Real(low=-0.10, high=0.20, name='sma_tol'),
-            volume_lookback=skopt.space.Real(low=1, high=self.max_lookback, prior='log-uniform', name='volume_lookback'),
-            volume_threshold=skopt.space.Real(low=1., high=1.e8, prior='log-uniform', name='volume_threshold'),
-            price_min=skopt.space.Real(low=0.1, high=200., prior='log-uniform', name='price_min'),
-            rsi_lookback=skopt.space.Real(low=1, high=10, prior='log-uniform', name='rsi_lookback'),
-            rsi_threshold=skopt.space.Real(low=40., high=60., name='rsi_threshold'),
+            lookback=skopt.space.Real(low=10, high=self.max_lookback, prior='log-uniform', name='lookback'),
+            ### sma_tol=skopt.space.Real(low=-0.10, high=0.20, name='sma_tol'),
+            ### volume_lookback=skopt.space.Real(low=1, high=self.max_lookback, prior='log-uniform', name='volume_lookback'),
+            ### volume_threshold=skopt.space.Real(low=1., high=1.e8, prior='log-uniform', name='volume_threshold'),
+            ### price_min=skopt.space.Real(low=0.1, high=200., prior='log-uniform', name='price_min'),
+            rsi_lookback=skopt.space.Real(low=1, high=100, prior='log-uniform', name='rsi_lookback'),
+            rsi_threshold=skopt.space.Real(low=35., high=55., name='rsi_threshold'),
             day_of_trade=skopt.space.Categorical(categories=[0, 1, 2, 3, 4], transform='identity', name='day_of_trade'),
-            n_positions=skopt.space.Real(low=1, high=50, prior='log-uniform', name='n_positions'),
+            ### n_positions=skopt.space.Real(low=1, high=50, prior='log-uniform', name='n_positions'),
         )
 
     def __call__(self,
@@ -240,7 +240,8 @@ class WeeklyRotationRunner(object):
 
 if __name__ == '__main__':
     chkpt_file = CHKPT_DEFAULT_FILE
-    restart_from_chkpt = False
+    restart_from_chkpt = True
+    n_calls = 100
 
     runner = WeeklyRotationRunner(start_date_requested=pd.to_datetime('2019-01-31'),  # '2000-11-19'
                                   end_date_requested=pd.to_datetime('2019-10-31'),  # '2019-11-22'
@@ -262,7 +263,7 @@ if __name__ == '__main__':
         n_random_starts = 5
 
     hpo_results = skopt.forest_minimize(func=runner.skopt_func, dimensions=dimensions_list,
-                                        n_calls=10, n_random_starts=n_random_starts,
+                                        n_calls=n_calls, n_random_starts=n_random_starts,
                                         base_estimator='ET', acq_func='EI',
                                         x0=x0, y0=y0, random_state=SEED, verbose=True, callback=[checkpoint_saver],
                                         n_points=10000, xi=0.01, kappa=1.96, n_jobs=1)
