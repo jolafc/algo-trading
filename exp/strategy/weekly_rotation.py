@@ -48,7 +48,7 @@ from exp.reporting import make_backtesting_report
 # V 11 - Passthrough all strategy parameters
 # 12 - Use the open, high and low of the next day when executing trades in backtesting, to get more meaningful
 #      estimate and confidence interval.
-#    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
+# V    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
 # V 13 - HPO: do function optimization (in-sample) with random search (baseline)
 # V 14a - HPO: Bayesian for production, chkpt save/load,
 # V 14b - HPO: encapsulation,
@@ -57,7 +57,7 @@ from exp.reporting import make_backtesting_report
 #       window sizes, AND tune the metric until the val set results are similar (wrt benchmark).
 # V 15 - Out-of-sample metrics: Need a rolling window of (train) data -> parameters -> (validation) set run
 # V      for tuning the skopt opt. parameters, then a true (test) set result (like 2019 year).
-# 16 - Find the source of the Nan bug in the trial run of # 15.
+# V 16 - Find the source of the Nan bug in the trial run of # 15.
 
 class WeelkyRotationStrategy(BaseEstimator):
 

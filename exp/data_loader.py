@@ -3,8 +3,9 @@ import os
 import pandas as pd
 from matplotlib import pyplot as plt
 
-from exp import PLT_FILE_FORMAT, RESULTS_DIR
-from exp.default_parameters import ADJUSTED_CLOSE_COLUMN
+from exp import PLT_FILE_FORMAT, RESULTS_DIR, SP500_PKL
+from exp.data_getter import load_pickled_dict
+from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, CLOSE_COLUMN, DIVIDENT_COLUMN, SPLIT_COLUMN
 
 
 def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_idx=None, debug=False, impute=None,
@@ -72,3 +73,95 @@ def slice_backtesting_window(features={}, start_date_requested=None, end_date_re
     features_sliced = {k: df.iloc[start_idx:end_idx + 1] for k, df in features.items()}
 
     return features_sliced, (start_date, end_date)
+
+
+class DividentsAdjustment(object):
+    def __init__(self, dividents, display_interval=.01):
+        self.dividents = dividents
+        self.mask = (dividents != 0.) & (~dividents.isna())
+
+        self.n = dividents.shape[1]
+        if type(display_interval) is float:
+            self.display_interval = max(int(display_interval*self.n), 1)
+        else:
+            self.display_interval = display_interval
+
+    def __call__(self, prices):
+        ticker = prices.name
+        tdividents = self.dividents[ticker][self.mask[ticker]]
+        dates = tdividents.index
+        for date in dates:
+            i = prices.index.get_loc(date)
+            factor = (prices.iloc[i-1] - tdividents[date]) / prices.iloc[i-1]
+            prices.iloc[:i] = prices.iloc[:i] * factor
+
+        i = list(self.dividents.columns).index(ticker)
+        if (i+1) % self.display_interval == 0:
+            print(f'Adjusted ticker {i+1} / {self.n}')
+
+
+class SplitsAdjustment(object):
+    def __init__(self, splits, display_interval=.01):
+        self.splits = splits
+        self.mask = (splits != 1.) & (~splits.isna())
+
+        self.n = splits.shape[1]
+        if type(display_interval) is float:
+            self.display_interval = max(int(display_interval*self.n), 1)
+        else:
+            self.display_interval = display_interval
+
+    def __call__(self, prices):
+        ticker = prices.name
+        tsplits = self.splits[ticker][self.mask[ticker]]
+        dates = tsplits.index
+        for date in dates:
+            i = prices.index.get_loc(date)
+            prices.iloc[:i] = prices.iloc[:i] / tsplits[date]
+
+        i = list(self.splits.columns).index(ticker)
+        if (i+1)%self.display_interval == 0:
+            print(f'Adjusted ticker {i+1} / {self.n}')
+
+
+def price_adj_experiment(n=None, verbose=True):
+    data_by_ticker = load_pickled_dict(pkl_file=SP500_PKL)
+
+    adj_close = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN, debug=False, impute=False, verbose=False)
+    close = get_feature(data_by_ticker, column=CLOSE_COLUMN, debug=False, impute=False, verbose=False)
+    dividents = get_feature(data_by_ticker, column=DIVIDENT_COLUMN, debug=False, impute=False, verbose=False)
+    splits = get_feature(data_by_ticker, column=SPLIT_COLUMN, debug=False, impute=False, verbose=False)
+
+    close = close.iloc[:, :n]
+    adj_close = adj_close.iloc[:, :n]
+
+    man_close = close.copy()
+
+    dividents_adj = DividentsAdjustment(dividents=dividents)
+    man_close.apply(dividents_adj)
+
+    splits_adj = SplitsAdjustment(splits=splits)
+    man_close.apply(splits_adj)
+
+    if verbose:
+        rel_error_before = (close - adj_close).abs().sum(axis=0) / adj_close.sum(axis=0)
+        rel_error_before.name = 'Before'
+        rel_error_after = (man_close - adj_close).abs().sum(axis=0) / adj_close.sum(axis=0)
+        rel_error_after.name = 'After'
+        rel_errors = pd.concat([rel_error_after, rel_error_before], axis=1)
+        print(f'\nSummed abs errors, relative to the summed prices: ')
+        print(rel_errors)
+        print(f'\nTotals errors (over all tickers): ')
+        print(rel_errors.sum(axis=0))
+
+        resid = man_close - adj_close
+        pd.plotting.register_matplotlib_converters()
+        plt.figure()
+        plt.plot(resid)
+        plt.savefig(os.path.join(RESULTS_DIR, f'adj_prices_diff.png'))
+
+    return man_close
+
+
+if __name__ == '__main__':
+    price_adj_experiment(n=3)
