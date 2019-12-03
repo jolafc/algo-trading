@@ -108,8 +108,9 @@ def cross_validate_strategy(
         )
         runtime = timer() - runtime
 
-        print(f'\nITERATION {i} ({runtime:.1f}s runtime):')
-        print(f'OPTIMIZED parameters: {optimized_parameters}')
+        print(f'\nCV WINDOW {i+1} / {n_windows} ({runtime:.1f}s runtime):')
+        formatted_pars = " ".join([f"{k}={v:.1f}" for k, v in optimized_parameters.items()])
+        print(f'OPTIMIZED wrt {output_metric}; opt. parameters: {formatted_pars}')
         print(f'TEST results for {train_start.date()} to {train_end.date()} '
               f'are {100 * train_metrics[YIELD]:.1f}% / {train_metrics[SHARPE]:.3f} sharpe / {train_metrics[SORTINO]:.3f} sortino '
               f'VS benchmark {100 * train_metrics[BYIELD]:.1f}% / {train_metrics[BSHARPE]:.3f} sharpe / {train_metrics[BSORTINO]:.3f} sortino ')
@@ -128,13 +129,18 @@ def cross_validate_strategy(
 
 
 if __name__ == '__main__':
-    for i in range(1):
+    output_metric = YIELD  # YIELD, SHARPE, SORTINO
+    n_iters = 10
+    n_calls = 10
+    n_rand = 5
+    for i in range(n_iters):
+        print(f'\n\nITERATION {i+1} / {n_iters}')
         results = cross_validate_strategy(
             StrategyRunner=WeeklyRotationRunner,
             max_lookback=200,
-            n_calls=1,
-            n_random_starts=1,
-            output_metric=YIELD,
+            n_calls=n_calls,
+            n_random_starts=n_rand if i == 0 else 0,
+            output_metric=output_metric,
             restart_from_chkpt=True,
             verbose=False,
             train_window_size=pd.to_timedelta('52w'),
@@ -142,10 +148,6 @@ if __name__ == '__main__':
             start_date=pd.to_datetime('2001-01-01'),
             end_date=pd.to_datetime('2004-01-01'),
         )
-
-    # pd.set_option("display.max_columns", 16)
-    # print(f'\nResults: ')
-    # print(results)
 
     # train_strategy(
     #     StrategyRunner=WeeklyRotationRunner,
