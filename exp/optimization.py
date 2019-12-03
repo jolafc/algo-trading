@@ -129,8 +129,8 @@ if __name__ == '__main__':
     results = cross_validate_strategy(
         StrategyRunner=WeeklyRotationRunner,
         max_lookback=200,
-        n_calls=1,
-        n_random_starts=1,
+        n_calls=10,
+        n_random_starts=5,
         output_metric=YIELD,
         restart_from_chkpt=False,
         verbose=False,

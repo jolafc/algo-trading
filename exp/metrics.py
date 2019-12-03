@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 from exp.default_parameters import N_DAYS_IN_YEAR
 
@@ -76,11 +77,11 @@ def get_sharpe_ratio(unrealized_pl, start_balance=0.):
     mean_steps_per_year = unrealized_pl.size / duration_in_years
 
     norm_returns_mean_annualized = normalized_returns.mean() * mean_steps_per_year
-    norm_returns_std_annualized = normalized_returns.std() * np.sqrt(
-        mean_steps_per_year)  # Assuming a Weiner process / random walk; mean total distance = distance per step * sqrt(number of steps)
+    # Assuming a Weiner process / random walk; mean total distance = distance per step * sqrt(number of steps)
+    norm_returns_std_annualized = normalized_returns.std() * np.sqrt(mean_steps_per_year)
     sharpe_ratio = norm_returns_mean_annualized / norm_returns_std_annualized
 
-    return sharpe_ratio
+    return sharpe_ratio if not pd.isna(sharpe_ratio) else 0.
 
 
 def get_sortino_ratio(unrealized_pl, start_balance=0.):
@@ -96,6 +97,6 @@ def get_sortino_ratio(unrealized_pl, start_balance=0.):
     norm_returns_std_annualized = neg_returns_std * np.sqrt(
         mean_steps_per_year)  # Assuming a Weiner process / random walk; mean total distance = distance per step * sqrt(number of steps)
 
-    sharpe_ratio = norm_returns_mean_annualized / norm_returns_std_annualized
+    sortino_ratio = norm_returns_mean_annualized / norm_returns_std_annualized
 
-    return sharpe_ratio
+    return sortino_ratio if not pd.isna(sortino_ratio) else 0.
