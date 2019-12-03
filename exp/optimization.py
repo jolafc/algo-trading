@@ -53,14 +53,14 @@ def train_strategy(
 
     runner.verbose = verbose
     runner.output_metric = None
-    kwargs = {k: v for k, v in zip(runner.dimensions.keys(), hpo_results.x)}
-    train_metrics = runner(**kwargs)
+    optimized_parameters = {k: v for k, v in zip(runner.dimensions.keys(), hpo_results.x)}
+    train_metrics = runner(**optimized_parameters)
 
     runner.start_date_requested = val_start
     runner.end_date_requested = val_end
-    val_metrics = runner(**kwargs)
+    val_metrics = runner(**optimized_parameters)
 
-    return train_metrics, val_metrics
+    return train_metrics, val_metrics, optimized_parameters
 
 
 def cross_validate_strategy(
@@ -94,10 +94,11 @@ def cross_validate_strategy(
         train_end = train_start + train_window_size
         val_start = train_end
         val_end = val_start + val_window_size
-        chkpt_file = os.path.join(RESULTS_DIR, f'checkpoint_{train_start.date()}_{train_end.date()}.pkl')
+        chkpt_file = os.path.join(RESULTS_DIR,
+                                  f'checkpoint_{train_start.date()}_{train_end.date()}_{output_metric}.pkl')
 
         runtime = timer()
-        train_metrics, val_metrics = train_strategy(
+        train_metrics, val_metrics, optimized_parameters = train_strategy(
             train_start=train_start,
             train_end=train_end,
             val_start=val_start,
@@ -108,6 +109,7 @@ def cross_validate_strategy(
         runtime = timer() - runtime
 
         print(f'\nITERATION {i} ({runtime:.1f}s runtime):')
+        print(f'OPTIMIZED parameters: {optimized_parameters}')
         print(f'TEST results for {train_start.date()} to {train_end.date()} '
               f'are {100 * train_metrics[YIELD]:.1f}% / {train_metrics[SHARPE]:.3f} sharpe / {train_metrics[SORTINO]:.3f} sortino '
               f'VS benchmark {100 * train_metrics[BYIELD]:.1f}% / {train_metrics[BSHARPE]:.3f} sharpe / {train_metrics[BSORTINO]:.3f} sortino ')
@@ -115,8 +117,8 @@ def cross_validate_strategy(
               f'are {100 * val_metrics[YIELD]:.1f}% / {val_metrics[SHARPE]:.3f} sharpe / {val_metrics[SORTINO]:.3f} sortino '
               f'VS benchmark {100 * val_metrics[BYIELD]:.1f}% / {val_metrics[BSHARPE]:.3f} sharpe / {val_metrics[BSORTINO]:.3f} sortino ')
 
-        metrics = {TRAIN_PREFIX+k: v for k, v in train_metrics.items()}
-        metrics.update({VAL_PREFIX+k: v for k, v in val_metrics.items()})
+        metrics = {TRAIN_PREFIX + k: v for k, v in train_metrics.items()}
+        metrics.update({VAL_PREFIX + k: v for k, v in val_metrics.items()})
 
         results.append(metrics)
 
@@ -126,23 +128,24 @@ def cross_validate_strategy(
 
 
 if __name__ == '__main__':
-    results = cross_validate_strategy(
-        StrategyRunner=WeeklyRotationRunner,
-        max_lookback=200,
-        n_calls=10,
-        n_random_starts=5,
-        output_metric=YIELD,
-        restart_from_chkpt=False,
-        verbose=False,
-        train_window_size=pd.to_timedelta('52w'),
-        val_window_size=pd.to_timedelta('52w'),
-        start_date=pd.to_datetime('2001-01-01'),
-        end_date=pd.to_datetime('2004-01-01'),
-    )
+    for i in range(1):
+        results = cross_validate_strategy(
+            StrategyRunner=WeeklyRotationRunner,
+            max_lookback=200,
+            n_calls=1,
+            n_random_starts=1,
+            output_metric=YIELD,
+            restart_from_chkpt=True,
+            verbose=False,
+            train_window_size=pd.to_timedelta('52w'),
+            val_window_size=pd.to_timedelta('52w'),
+            start_date=pd.to_datetime('2001-01-01'),
+            end_date=pd.to_datetime('2004-01-01'),
+        )
 
-    pd.set_option("display.max_columns", 16)
-    print(f'\nResults: ')
-    print(results)
+    # pd.set_option("display.max_columns", 16)
+    # print(f'\nResults: ')
+    # print(results)
 
     # train_strategy(
     #     StrategyRunner=WeeklyRotationRunner,

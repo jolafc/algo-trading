@@ -13,7 +13,7 @@ REFERENCE_VAL_YIELD = -0.13707755424376059
 
 
 def test_optimization():
-    train_metrics, val_metrics = train_strategy(
+    train_metrics, val_metrics, optimized_parameters = train_strategy(
         StrategyRunner=WeeklyRotationRunner,
         train_start=pd.to_datetime('2019-01-31'),
         train_end=pd.to_datetime('2019-10-31'),
