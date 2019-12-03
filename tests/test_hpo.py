@@ -8,8 +8,8 @@ from exp.optimization import train_strategy
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
 CHKPT_TEST_FILE = os.path.join(RESULTS_DIR, 'checkpoint_test.pkl')
-REFERENCE_TRAIN_YIELD = 0.2182188801650903
-REFERENCE_VAL_YIELD = -0.12216407120430788
+REFERENCE_TRAIN_YIELD = 0.2104730320069125
+REFERENCE_VAL_YIELD = -0.13707755424376059
 
 
 def test_optimization():

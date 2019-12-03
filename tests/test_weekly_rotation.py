@@ -1,10 +1,11 @@
 import numpy as np
 import pandas as pd
 
+from exp import YIELD, SHARPE
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
-REFERENCE_YIELD = 0.13514657590506485
-REFERENCE_SHARPE = 0.8992035532340469
+REFERENCE_YIELD = 0.17253136849657844
+REFERENCE_SHARPE = 1.1567442855142187
 
 
 def test_weekly_rotation():
@@ -22,10 +23,10 @@ def test_weekly_rotation():
                      day_of_trade=4,
                      n_positions=10)
 
-    assert np.isclose(results["annualized_yield"], REFERENCE_YIELD, atol=1e-8), \
-        f'Yield is {results["annualized_yield"]}  but should be {REFERENCE_YIELD}'
-    assert np.isclose(results["sharpe_ratio"], REFERENCE_SHARPE, atol=1e-8), \
-        f'Sharpe ratio is {results["sharpe_ratio"]}  but should be {REFERENCE_SHARPE}'
+    assert np.isclose(results[YIELD], REFERENCE_YIELD, atol=1e-8), \
+        f'Yield is {results[YIELD]}  but should be {REFERENCE_YIELD}'
+    assert np.isclose(results[SHARPE], REFERENCE_SHARPE, atol=1e-8), \
+        f'Sharpe ratio is {results[SHARPE]}  but should be {REFERENCE_SHARPE}'
 
 
 if __name__ == '__main__':

@@ -2,16 +2,16 @@ from collections import OrderedDict
 from timeit import default_timer as timer
 
 import pandas as pd
+import skopt
 import ta.momentum
 from sklearn.base import BaseEstimator
-import skopt
 
 from exp import SP500_PKL, PL, YIELD, SHARPE, SORTINO
 from exp.backtesting import Backtesting
 from exp.data_getter import load_pickled_dict
 from exp.data_loader import get_feature, slice_backtesting_window
 from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT_START_BALANCE, CLOSE_COLUMN, \
-    OPEN_COLUMN, LOW_COLUMN, HIGH_COLUMN
+    OPEN_COLUMN, FACTOR_COLUMN, EXECUTION_PRICE_COLUMN
 from exp.reporting import make_backtesting_report
 
 
@@ -47,8 +47,8 @@ from exp.reporting import make_backtesting_report
 # V 9 - Refactor the backtesting loop into a class
 # V 10 - Data loader file, metrics file, reporting file, ...
 # V 11 - Passthrough all strategy parameters
-# 12 - Use the open, high and low of the next day when executing trades in backtesting, to get more meaningful
-#      estimate and confidence interval.
+# V 12 - Use the open, high and low of the next day when executing trades in backtesting, to get more meaningful
+# V      estimate and confidence interval.
 # V    - (Requires) figure out the correction factor from AV and apply it to open, high, and low prices.
 # V 13 - HPO: do function optimization (in-sample) with random search (baseline)
 # V 14a - HPO: Bayesian for production, chkpt save/load,
@@ -201,15 +201,15 @@ class WeeklyRotationRunner(object):
                                                     debug=False, impute=False, verbose=self.verbose)
         data_by_feature[OPEN_COLUMN] = get_feature(data_by_ticker, column=OPEN_COLUMN,
                                                     debug=False, impute=False, verbose=self.verbose)
+        data_by_feature[FACTOR_COLUMN] = data_by_feature[ADJUSTED_CLOSE_COLUMN] / data_by_feature[CLOSE_COLUMN]
+        data_by_feature[EXECUTION_PRICE_COLUMN] = (data_by_feature[OPEN_COLUMN] * data_by_feature[FACTOR_COLUMN]).shift(-1)
         data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
                                                                            start_date_requested=self.start_date_requested,
                                                                            end_date_requested=self.end_date_requested,
                                                                            lookback=self.max_lookback,
                                                                            verbose=self.verbose)
 
-        factors = data_by_feature[ADJUSTED_CLOSE_COLUMN] / data_by_feature[CLOSE_COLUMN]
-        prices = data_by_feature[OPEN_COLUMN] * factors
-        prices = prices.shift(-1)
+        execution_prices = data_by_feature[EXECUTION_PRICE_COLUMN]
 
         strategy = WeelkyRotationStrategy(start_date=start_date,
                                           end_date=end_date,
@@ -227,7 +227,7 @@ class WeeklyRotationRunner(object):
         dates = strategy.get_dates()
 
         backtesting = Backtesting(start_balance=self.start_balance)
-        backtesting.fit(strategy=strategy, prices=prices, dates=dates)
+        backtesting.fit(strategy=strategy, prices=execution_prices, dates=dates)
 
         kwargs = OrderedDict(
             start_date=start_date.date(),
@@ -244,7 +244,7 @@ class WeeklyRotationRunner(object):
             n_positions=n_positions,
         )
         plotname = f'unrealized_pl__' + '__'.join([f'{k}_{v}' for k, v in kwargs.items()])
-        results = make_backtesting_report(backtesting=backtesting, prices=prices, dates=dates,
+        results = make_backtesting_report(backtesting=backtesting, prices=execution_prices, dates=dates,
                                           verbose=self.verbose, plotting=self.verbose, plotname=plotname)
 
         time = timer() - time
