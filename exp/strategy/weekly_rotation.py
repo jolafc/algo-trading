@@ -10,7 +10,8 @@ from exp import SP500_PKL, PL, YIELD, SHARPE, SORTINO
 from exp.backtesting import Backtesting
 from exp.data_getter import load_pickled_dict
 from exp.data_loader import get_feature, slice_backtesting_window
-from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT_START_BALANCE
+from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT_START_BALANCE, CLOSE_COLUMN, \
+    OPEN_COLUMN
 from exp.reporting import make_backtesting_report
 
 
@@ -196,13 +197,19 @@ class WeeklyRotationRunner(object):
                                                              debug=False, impute=False, verbose=self.verbose)
         data_by_feature[VOLUME_COLUMN] = get_feature(data_by_ticker, column=VOLUME_COLUMN,
                                                      debug=False, impute=False, verbose=self.verbose)
+        data_by_feature[CLOSE_COLUMN] = get_feature(data_by_ticker, column=CLOSE_COLUMN,
+                                                    debug=False, impute=False, verbose=self.verbose)
+        data_by_feature[OPEN_COLUMN] = get_feature(data_by_ticker, column=OPEN_COLUMN,
+                                                    debug=False, impute=False, verbose=self.verbose)
         data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
                                                                            start_date_requested=self.start_date_requested,
                                                                            end_date_requested=self.end_date_requested,
                                                                            lookback=self.max_lookback,
                                                                            verbose=self.verbose)
 
-        prices = data_by_feature[ADJUSTED_CLOSE_COLUMN]
+        factors = data_by_feature[ADJUSTED_CLOSE_COLUMN] / data_by_feature[CLOSE_COLUMN]
+        prices = data_by_feature[OPEN_COLUMN] * factors
+        prices = prices.shift(-1)
 
         strategy = WeelkyRotationStrategy(start_date=start_date,
                                           end_date=end_date,
@@ -256,3 +263,24 @@ class WeeklyRotationRunner(object):
         metric = self(**kwargs)
         sign = self.signs[self.output_metric]
         return sign * metric
+
+
+if __name__ == '__main__':
+    runner = WeeklyRotationRunner(
+        start_date_requested=pd.to_datetime('2019-01-31'),
+        # start_date_requested=pd.to_datetime('2000-10-31'),
+        end_date_requested=pd.to_datetime('2019-10-31'),
+        max_lookback=200,
+        start_balance=DEFAULT_START_BALANCE,
+        verbose=True,
+        output_metric=None)
+
+    results = runner(lookback=200,
+                     sma_tol=0.02,
+                     volume_lookback=20,
+                     volume_threshold=1e6,
+                     price_min=1.,
+                     rsi_lookback=3,
+                     rsi_threshold=50.,
+                     day_of_trade=4,
+                     n_positions=10)

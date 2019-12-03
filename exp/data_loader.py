@@ -151,7 +151,7 @@ def price_adj_experiment(n=None, verbose=True):
         rel_errors = pd.concat([rel_error_after, rel_error_before], axis=1)
         print(f'\nSummed abs errors, relative to the summed prices: ')
         print(rel_errors)
-        print(f'\nTotals errors (over all tickers): ')
+        print(f'\nTotals abs. rel. errors (over all tickers): ')
         print(rel_errors.sum(axis=0))
 
         resid = man_close - adj_close
