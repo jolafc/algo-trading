@@ -10,7 +10,7 @@ class Backtesting(object):
     def __init__(self, start_balance=DEFAULT_START_BALANCE):
         self.start_balance = start_balance
 
-    def fit(self, strategy, prices, dates=None):
+    def fit(self, strategy, prices, dates=None, low=None, high=None):
         if dates is None:
             dates = prices.index
         positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
@@ -31,7 +31,7 @@ class Backtesting(object):
                 assert mask.sum() == 1, f'The number of current positions matching {sell} is {mask.sum()} but should be ==1'
                 pos_id = positions_df[mask].index[0]
 
-                price = prices.loc[date, sell]
+                price = prices.loc[date, sell] if low is None else low.loc[date, sell]
                 position = positions_df.loc[pos_id, 'position']
                 if pd.isna(price):
                     price = positions_df.loc[pos_id, 'price_buy']
@@ -50,7 +50,7 @@ class Backtesting(object):
 
             notional = get_notional(balance=balance, n_buys=len(buys), price_min=strategy.price_min)
             for buy in buys:
-                price = prices.loc[date, buy]
+                price = prices.loc[date, buy] if high is None else high.loc[date, buy]
                 position = notional // price
                 fee = get_ib_fees(position=position, price=price)
 

@@ -11,7 +11,7 @@ from exp.backtesting import Backtesting
 from exp.data_getter import load_pickled_dict
 from exp.data_loader import get_feature, slice_backtesting_window
 from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, VOLUME_COLUMN, DEFAULT_START_BALANCE, CLOSE_COLUMN, \
-    OPEN_COLUMN
+    OPEN_COLUMN, LOW_COLUMN, HIGH_COLUMN
 from exp.reporting import make_backtesting_report
 
 
@@ -201,6 +201,10 @@ class WeeklyRotationRunner(object):
                                                     debug=False, impute=False, verbose=self.verbose)
         data_by_feature[OPEN_COLUMN] = get_feature(data_by_ticker, column=OPEN_COLUMN,
                                                     debug=False, impute=False, verbose=self.verbose)
+        data_by_feature[LOW_COLUMN] = get_feature(data_by_ticker, column=LOW_COLUMN,
+                                                    debug=False, impute=False, verbose=self.verbose)
+        data_by_feature[HIGH_COLUMN] = get_feature(data_by_ticker, column=HIGH_COLUMN,
+                                                    debug=False, impute=False, verbose=self.verbose)
         data_by_feature, (start_date, end_date) = slice_backtesting_window(features=data_by_feature,
                                                                            start_date_requested=self.start_date_requested,
                                                                            end_date_requested=self.end_date_requested,
@@ -210,6 +214,10 @@ class WeeklyRotationRunner(object):
         factors = data_by_feature[ADJUSTED_CLOSE_COLUMN] / data_by_feature[CLOSE_COLUMN]
         prices = data_by_feature[OPEN_COLUMN] * factors
         prices = prices.shift(-1)
+        low = data_by_feature[LOW_COLUMN] * factors
+        low = low.shift(-1)
+        high = data_by_feature[HIGH_COLUMN] * factors
+        high = high.shift(-1)
 
         strategy = WeelkyRotationStrategy(start_date=start_date,
                                           end_date=end_date,
@@ -227,7 +235,7 @@ class WeeklyRotationRunner(object):
         dates = strategy.get_dates()
 
         backtesting = Backtesting(start_balance=self.start_balance)
-        backtesting.fit(strategy=strategy, prices=prices, dates=dates)
+        backtesting.fit(strategy=strategy, prices=prices, dates=dates, low=low, high=high)
 
         kwargs = OrderedDict(
             start_date=start_date.date(),
