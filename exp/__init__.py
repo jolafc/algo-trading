@@ -13,3 +13,15 @@ CONST_CSV = os.path.join(DATA_DIR, 'constituents.csv')
 SP500_PKL = os.path.join(DATA_DIR, 'sp500.pkl')
 PLOTFILE = os.path.join(RESULTS_DIR, f'sample_data'+PLT_FILE_FORMAT)
 CHKPT_DEFAULT_FILE = os.path.join(RESULTS_DIR, f'checkpoint.pkl')
+
+BENCH_PREFIX = 'B'
+TRAIN_PREFIX = 'T'
+VAL_PREFIX = 'V'
+PL = 'pl'
+YIELD = 'yield'
+SHARPE = 'sharpe'
+SORTINO = 'sortino'
+BPL = BENCH_PREFIX + 'pl'
+BYIELD = BENCH_PREFIX + 'yield'
+BSHARPE = BENCH_PREFIX + 'sharpe'
+BSORTINO = BENCH_PREFIX + 'sortino'

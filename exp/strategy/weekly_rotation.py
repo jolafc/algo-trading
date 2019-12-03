@@ -6,7 +6,7 @@ import ta.momentum
 from sklearn.base import BaseEstimator
 import skopt
 
-from exp import SP500_PKL
+from exp import SP500_PKL, PL, YIELD, SHARPE, SORTINO
 from exp.backtesting import Backtesting
 from exp.data_getter import load_pickled_dict
 from exp.data_loader import get_feature, slice_backtesting_window
@@ -53,8 +53,11 @@ from exp.reporting import make_backtesting_report
 # V 14a - HPO: Bayesian for production, chkpt save/load,
 # V 14b - HPO: encapsulation,
 # 14c - HPO: parallelism, share loaded data (?)
-# 15 - Out-of-sample metrics: Need a rolling window of validation (train) data -> parameters -> (validation) set run
-#      for tuning the skopt opt. parameters, then a true (test) set result (like 2019 year).
+# 14d - HPO tuning: restrict search space to smallest meaningful range, converge n_iters, tune the train/val
+#       window sizes, AND tune the metric until the val set results are similar (wrt benchmark).
+# V 15 - Out-of-sample metrics: Need a rolling window of (train) data -> parameters -> (validation) set run
+# V      for tuning the skopt opt. parameters, then a true (test) set result (like 2019 year).
+# 16 - Find the source of the Nan bug in the trial run of # 15.
 
 class WeelkyRotationStrategy(BaseEstimator):
 
@@ -138,10 +141,10 @@ class WeelkyRotationStrategy(BaseEstimator):
 
 
 class WeeklyRotationRunner(object):
-    signs = {'realized_pl': -1,
-             'annualized_yield': -1,
-             'sharpe_ratio': -1,
-             'sortino_ratio': -1}
+    signs = {PL: -1,
+             YIELD: -1,
+             SHARPE: -1,
+             SORTINO: -1}
 
     def __init__(self,
                  start_date_requested=pd.to_datetime('2019-01-31'),

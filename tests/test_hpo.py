@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from exp import RESULTS_DIR
+from exp import RESULTS_DIR, YIELD
 from exp.optimization import train_strategy
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
@@ -22,13 +22,13 @@ def test_optimization():
         max_lookback=200,
         n_calls=5,
         n_random_starts=1,
-        output_metric='annualized_yield',
+        output_metric=YIELD,
         restart_from_chkpt=False,
         chkpt_file=CHKPT_TEST_FILE,
     )
 
-    train_yield = train_metrics['annualized_yield']
-    val_yield = val_metrics['annualized_yield']
+    train_yield = train_metrics[YIELD]
+    val_yield = val_metrics[YIELD]
 
     assert np.isclose(train_yield, REFERENCE_TRAIN_YIELD, atol=1e-8), \
         f'Train yield is {train_yield} but should be {REFERENCE_TRAIN_YIELD}'

@@ -3,7 +3,7 @@ import os
 import pandas as pd
 from matplotlib import pyplot as plt
 
-from exp import PLT_FILE_FORMAT, RESULTS_DIR
+from exp import PLT_FILE_FORMAT, RESULTS_DIR, PL, YIELD, SHARPE, SORTINO, BPL, BYIELD, BSHARPE, BSORTINO
 from exp.backtesting import Backtesting
 from exp.default_parameters import BENCKMARK_TICKER
 from exp.metrics import get_ib_fees, get_annualized_yield, get_sharpe_ratio, get_sortino_ratio
@@ -59,14 +59,14 @@ def make_backtesting_report(backtesting, prices, dates=None, verbose=True, plott
         if verbose:
             print(f'\nPlotted unrealized P&L to file: {plotfile}')
 
-    results = {'realized_pl': realized_pl,
-               'annualized_yield': annualized_yield,
-               'sharpe_ratio': sharpe_ratio,
-               'sortino_ratio': sortino_ratio,
-               'benchmark_realized_pl': benchmark_realized_pl,
-               'benchmark_annualized_yield': benchmark_annualized_yield,
-               'benchmark_sharpe_ratio': benchmark_sharpe_ratio,
-               'benchmark_sortino_ratio': benchmark_sortino_ratio,
+    results = {PL: realized_pl,
+               YIELD: annualized_yield,
+               SHARPE: sharpe_ratio,
+               SORTINO: sortino_ratio,
+               BPL: benchmark_realized_pl,
+               BYIELD: benchmark_annualized_yield,
+               BSHARPE: benchmark_sharpe_ratio,
+               BSORTINO: benchmark_sortino_ratio,
                }
 
     return results

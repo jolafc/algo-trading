@@ -4,7 +4,8 @@ from timeit import default_timer as timer
 import pandas as pd
 import skopt
 
-from exp import CHKPT_DEFAULT_FILE, SEED, RESULTS_DIR
+from exp import CHKPT_DEFAULT_FILE, SEED, RESULTS_DIR, YIELD, SHARPE, SORTINO, BYIELD, BSHARPE, BSORTINO, TRAIN_PREFIX, \
+    VAL_PREFIX
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
 
@@ -17,7 +18,7 @@ def train_strategy(
         max_lookback=200,
         n_calls=100,
         n_random_starts=5,
-        output_metric='annualized_yield',
+        output_metric=YIELD,
         restart_from_chkpt=False,
         chkpt_file=CHKPT_DEFAULT_FILE,
         verbose=True,
@@ -67,7 +68,7 @@ def cross_validate_strategy(
         max_lookback=200,
         n_calls=10,
         n_random_starts=5,
-        output_metric='annualized_yield',
+        output_metric=YIELD,
         restart_from_chkpt=False,
         verbose=False,
         train_window_size=pd.to_timedelta('52w'),
@@ -108,14 +109,14 @@ def cross_validate_strategy(
 
         print(f'\nITERATION {i} ({runtime:.1f}s runtime):')
         print(f'TEST results for {train_start.date()} to {train_end.date()} '
-              f'are {100 * train_metrics["annualized_yield"]:.1f}% / {train_metrics["sharpe_ratio"]:.3f} sharpe / {train_metrics["sortino_ratio"]:.3f} sortino '
-              f'VS benchmark {100 * train_metrics["benchmark_annualized_yield"]:.1f}% / {train_metrics["benchmark_sharpe_ratio"]:.3f} sharpe / {train_metrics["benchmark_sortino_ratio"]:.3f} sortino ')
+              f'are {100 * train_metrics[YIELD]:.1f}% / {train_metrics[SHARPE]:.3f} sharpe / {train_metrics[SORTINO]:.3f} sortino '
+              f'VS benchmark {100 * train_metrics[BYIELD]:.1f}% / {train_metrics[BSHARPE]:.3f} sharpe / {train_metrics[BSORTINO]:.3f} sortino ')
         print(f'VAL  results for {val_start.date()} to {val_end.date()} '
-              f'are {100 * val_metrics["annualized_yield"]:.1f}% / {val_metrics["sharpe_ratio"]:.3f} sharpe / {val_metrics["sortino_ratio"]:.3f} sortino '
-              f'VS benchmark {100 * val_metrics["benchmark_annualized_yield"]:.1f}% / {val_metrics["benchmark_sharpe_ratio"]:.3f} sharpe / {val_metrics["benchmark_sortino_ratio"]:.3f} sortino ')
+              f'are {100 * val_metrics[YIELD]:.1f}% / {val_metrics[SHARPE]:.3f} sharpe / {val_metrics[SORTINO]:.3f} sortino '
+              f'VS benchmark {100 * val_metrics[BYIELD]:.1f}% / {val_metrics[BSHARPE]:.3f} sharpe / {val_metrics[BSORTINO]:.3f} sortino ')
 
-        metrics = {'train_'+k: v for k, v in train_metrics.items()}
-        metrics.update({'val_'+k: v for k, v in val_metrics.items()})
+        metrics = {TRAIN_PREFIX+k: v for k, v in train_metrics.items()}
+        metrics.update({VAL_PREFIX+k: v for k, v in val_metrics.items()})
 
         results.append(metrics)
 
@@ -130,7 +131,7 @@ if __name__ == '__main__':
         max_lookback=200,
         n_calls=1,
         n_random_starts=1,
-        output_metric='annualized_yield',
+        output_metric=YIELD,
         restart_from_chkpt=False,
         verbose=False,
         train_window_size=pd.to_timedelta('52w'),
