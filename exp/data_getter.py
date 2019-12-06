@@ -1,5 +1,5 @@
 # Module importing and config
-
+import logging
 import os
 import sys
 from copy import deepcopy
@@ -39,7 +39,7 @@ def av_query(symbol):
     try:
         price_df = pd.read_csv(file, index_col=0, parse_dates=['timestamp'])
     except ValueError:
-        print(f'ERROR - Querying data for {symbol} did not contain a valid DF. Instead found:\n{response.text}')
+        logging.info(f'ERROR - Querying data for {symbol} did not contain a valid DF. Instead found:\n{response.text}')
     run_time = timer() - run_time
 
     return price_df, run_time
@@ -56,25 +56,25 @@ def get_universe_prices(symbols, prices={}, save_file=None, save_frequency=QPS):
     updated_prices = deepcopy(prices)
     missing_symbols = set(symbols).difference(set(updated_prices.keys()))
     tot_time = 0.
-    print(f'Querying AV API for {len(missing_symbols)} symbols historical prices:\n')
+    logging.info(f'Querying AV API for {len(missing_symbols)} symbols historical prices:\n')
     for i, symbol in enumerate(missing_symbols):
         if i % QPM == 0 and i > 0:
             wait_time_left = WAIT_TIME - tot_time
             tot_time = 0.
             if wait_time_left > 0:
-                print(f'API quota reached, waiting {wait_time_left:.2f} s...')
+                logging.info(f'API quota reached, waiting {wait_time_left:.2f} s...')
                 sys.stdout.flush()
                 time.sleep(wait_time_left)
 
         updated_prices[symbol], run_time = av_query(symbol=symbol)
-        print(f'{i:03d} - Queried data for {symbol}, time={run_time:.2f} s.')
+        logging.info(f'{i:03d} - Queried data for {symbol}, time={run_time:.2f} s.')
 
         sys.stdout.flush()
         tot_time += run_time
 
         if save_file is not None and i % save_frequency == 0 and i > 0:
             save_prices_dict(updated_prices, pkl_file=save_file)
-            print(f'{i:03d} - Saved data to file={save_file}')
+            logging.info(f'{i:03d} - Saved data to file={save_file}')
 
     return updated_prices
 

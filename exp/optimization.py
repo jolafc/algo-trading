@@ -1,5 +1,8 @@
 import os
+import sys
 from timeit import default_timer as timer
+import logging
+from datetime import datetime
 
 import pandas as pd
 import skopt
@@ -27,6 +30,7 @@ def train_strategy(
                             end_date_requested=train_end,
                             max_lookback=max_lookback,
                             verbose=False,
+                            res_dir=os.path.dirname(chkpt_file),
                             output_metric=output_metric)
 
     dimensions_list = list(runner.dimensions.values())
@@ -49,7 +53,7 @@ def train_strategy(
                                         n_points=10000, xi=0.01, kappa=1.96, n_jobs=1)
 
     if verbose:
-        print(f'Optimal yield is: {hpo_results.fun} at parameters {hpo_results.x}')
+        logging.info(f'Optimal yield is: {hpo_results.fun} at parameters {hpo_results.x}')
 
     runner.verbose = verbose
     runner.output_metric = None
@@ -71,6 +75,7 @@ def cross_validate_strategy(
         output_metric=YIELD,
         restart_from_chkpt=False,
         verbose=False,
+        run_dir=RESULTS_DIR,
         train_window_size=pd.to_timedelta('52w'),
         val_window_size=pd.to_timedelta('52w'),
         start_date=pd.to_datetime('2001-01-01'),
@@ -94,7 +99,7 @@ def cross_validate_strategy(
         train_end = train_start + train_window_size
         val_start = train_end
         val_end = val_start + val_window_size
-        chkpt_file = os.path.join(RESULTS_DIR,
+        chkpt_file = os.path.join(run_dir,
                                   f'checkpoint_{train_start.date()}_{train_end.date()}_{output_metric}.pkl')
 
         runtime = timer()
@@ -108,15 +113,20 @@ def cross_validate_strategy(
         )
         runtime = timer() - runtime
 
-        print(f'\nCV WINDOW {i+1} / {n_windows} ({runtime:.1f}s runtime):')
+        logging.info(f'CV WINDOW {i + 1} / {n_windows} ({runtime:.1f}s runtime):')
+        logging.info('')
         formatted_pars = " ".join([f"{k}={v:.1f}" for k, v in optimized_parameters.items()])
-        print(f'OPTIMIZED wrt {output_metric}; opt. parameters: {formatted_pars}')
-        print(f'TEST results for {train_start.date()} to {train_end.date()} '
-              f'are {100 * train_metrics[YIELD]:.1f}% / {train_metrics[SHARPE]:.3f} sharpe / {train_metrics[SORTINO]:.3f} sortino '
-              f'VS benchmark {100 * train_metrics[BYIELD]:.1f}% / {train_metrics[BSHARPE]:.3f} sharpe / {train_metrics[BSORTINO]:.3f} sortino ')
-        print(f'VAL  results for {val_start.date()} to {val_end.date()} '
-              f'are {100 * val_metrics[YIELD]:.1f}% / {val_metrics[SHARPE]:.3f} sharpe / {val_metrics[SORTINO]:.3f} sortino '
-              f'VS benchmark {100 * val_metrics[BYIELD]:.1f}% / {val_metrics[BSHARPE]:.3f} sharpe / {val_metrics[BSORTINO]:.3f} sortino ')
+        logging.info(f'OPTIMIZED wrt {output_metric}; opt. parameters: {formatted_pars}')
+        logging.info(f'TEST results for {train_start.date()} to {train_end.date()} '
+                     f'are {100 * train_metrics[YIELD]:.1f}% / {train_metrics[SHARPE]:.3f} sharpe'
+                     f' / {train_metrics[SORTINO]:.3f} sortino '
+                     f'VS benchmark {100 * train_metrics[BYIELD]:.1f}% / {train_metrics[BSHARPE]:.3f} sharpe'
+                     f' / {train_metrics[BSORTINO]:.3f} sortino ')
+        logging.info(f'VAL  results for {val_start.date()} to {val_end.date()} '
+                     f'are {100 * val_metrics[YIELD]:.1f}% / {val_metrics[SHARPE]:.3f} sharpe'
+                     f' / {val_metrics[SORTINO]:.3f} sortino '
+                     f'VS benchmark {100 * val_metrics[BYIELD]:.1f}% / {val_metrics[BSHARPE]:.3f} sharpe'
+                     f' / {val_metrics[BSORTINO]:.3f} sortino ')
 
         metrics = {TRAIN_PREFIX + k: v for k, v in train_metrics.items()}
         metrics.update({VAL_PREFIX + k: v for k, v in val_metrics.items()})
@@ -134,8 +144,16 @@ if __name__ == '__main__':
     n_calls = 10
     n_rand = 5
     from_chkpt = True
+
+    run_dir = os.path.join(RESULTS_DIR, f'run_{output_metric}_{datetime.now()}')
+    os.makedirs(run_dir, exist_ok=False)
+    log_file = os.path.join(run_dir, f'cv_opt.log')
+    handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(filename=log_file)]
+    logging.basicConfig(handlers=handlers, level=logging.INFO)
     for i in range(n_iters):
-        print(f'\n\nITERATION {i+1} / {n_iters}')
+        logging.info('')
+        logging.info('')
+        logging.info(f'ITERATION {i + 1} / {n_iters}')
         results = cross_validate_strategy(
             StrategyRunner=WeeklyRotationRunner,
             max_lookback=200,
@@ -144,6 +162,7 @@ if __name__ == '__main__':
             output_metric=output_metric,
             restart_from_chkpt=from_chkpt if i == 0 else True,
             verbose=False,
+            run_dir=run_dir,
             train_window_size=pd.to_timedelta('52w'),
             val_window_size=pd.to_timedelta('52w'),
             start_date=pd.to_datetime('2001-01-01'),

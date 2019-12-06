@@ -1,3 +1,5 @@
+import logging
+import os
 from collections import OrderedDict
 from timeit import default_timer as timer
 
@@ -6,7 +8,7 @@ import skopt
 import ta.momentum
 from sklearn.base import BaseEstimator
 
-from exp import SP500_PKL, PL, YIELD, SHARPE, SORTINO
+from exp import SP500_PKL, PL, YIELD, SHARPE, SORTINO, RESULTS_DIR, PLT_FILE_FORMAT
 from exp.backtesting import Backtesting
 from exp.data_getter import load_pickled_dict
 from exp.data_loader import get_feature, slice_backtesting_window
@@ -153,12 +155,14 @@ class WeeklyRotationRunner(object):
                  max_lookback=200,
                  start_balance=DEFAULT_START_BALANCE,
                  verbose=True,
+                 res_dir=RESULTS_DIR,
                  output_metric=None):
         self.start_date_requested = start_date_requested
         self.end_date_requested = end_date_requested
         self.max_lookback = max_lookback
         self.start_balance = start_balance
         self.verbose = verbose
+        self.res_dir = res_dir
         self.output_metric = output_metric
         self.dimensions = OrderedDict(
             lookback=skopt.space.Real(low=10, high=self.max_lookback, prior='log-uniform', name='lookback'),
@@ -167,7 +171,7 @@ class WeeklyRotationRunner(object):
             ### volume_threshold=skopt.space.Real(low=1., high=1.e8, prior='log-uniform', name='volume_threshold'),
             ### price_min=skopt.space.Real(low=0.1, high=200., prior='log-uniform', name='price_min'),
             rsi_lookback=skopt.space.Real(low=1, high=100, prior='log-uniform', name='rsi_lookback'),
-            rsi_threshold=skopt.space.Real(low=35., high=55., name='rsi_threshold'),
+            rsi_threshold=skopt.space.Real(low=40., high=55., name='rsi_threshold'),
             day_of_trade=skopt.space.Categorical(categories=[0, 1, 2, 3, 4], transform='identity', name='day_of_trade'),
             ### n_positions=skopt.space.Real(low=1, high=50, prior='log-uniform', name='n_positions'),
         )
@@ -244,12 +248,14 @@ class WeeklyRotationRunner(object):
             n_positions=n_positions,
         )
         plotname = f'unrealized_pl__' + '__'.join([f'{k}_{v}' for k, v in kwargs.items()])
+        plotfile = os.path.join(self.res_dir, f'{plotname}.{PLT_FILE_FORMAT}')
         results = make_backtesting_report(backtesting=backtesting, prices=execution_prices, dates=dates,
-                                          verbose=self.verbose, plotting=self.verbose, plotname=plotname)
+                                          verbose=self.verbose, plotting=self.verbose, plotfile=plotfile)
 
         time = timer() - time
         if self.verbose:
-            print(f'\nBacktesting time: {time:.3f} s.')
+            logging.info('')
+            logging.info(f'Backtesting time: {time:.3f} s.')
 
         output = results if self.output_metric is None else results[self.output_metric]
 

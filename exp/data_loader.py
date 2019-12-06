@@ -1,4 +1,5 @@
 import os
+import logging
 
 import pandas as pd
 from matplotlib import pyplot as plt
@@ -19,7 +20,7 @@ def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_i
     last_date = feature_df.index[-1]
     n_tickers = len(feature_df.columns)
     if verbose:
-        print(f'Loaded {column} for {n_tickers} tickers from {first_date.date()} to {last_date.date()}.')
+        logging.info(f'Loaded {column} for {n_tickers} tickers from {first_date.date()} to {last_date.date()}.')
 
     if start_idx is not None and end_idx is not None:
         feature_df = feature_df.iloc[start_idx:end_idx + 1, :]
@@ -39,8 +40,8 @@ def report_nans(df, feature_name=ADJUSTED_CLOSE_COLUMN, verbose=True):
     plt.savefig(plotfile)
 
     if verbose:
-        print(f'Number of Nans per ticker for {feature_name}:\n{n_nans}\n')
-        print(f'Number of Nans per day for {feature_name} plotted in file: {plotfile}\n')
+        logging.info(f'Number of Nans per ticker for {feature_name}:\n{n_nans}\n')
+        logging.info(f'Number of Nans per day for {feature_name} plotted in file: {plotfile}\n')
 
 
 def impute_time_series(df, method=None):
@@ -62,7 +63,7 @@ def slice_backtesting_window(features={}, start_date_requested=None, end_date_re
     start_date = valid_dates[0]
     end_date = valid_dates[-1]
     if verbose:
-        print(f'Backtesting date range adjusted from {start_date_requested.date()} - {end_date_requested.date()}'
+        logging.info(f'Backtesting date range adjusted from {start_date_requested.date()} - {end_date_requested.date()}'
               f' to {start_date.date()} - {end_date.date()}')
 
     start_idx = df.index.get_loc(start_date) - (lookback - 1)
@@ -97,7 +98,7 @@ class DividentsAdjustment(object):
 
         i = list(self.dividents.columns).index(ticker)
         if (i+1) % self.display_interval == 0:
-            print(f'Adjusted ticker {i+1} / {self.n}')
+            logging.info(f'Adjusted ticker {i+1} / {self.n}')
 
 
 class SplitsAdjustment(object):
@@ -121,7 +122,7 @@ class SplitsAdjustment(object):
 
         i = list(self.splits.columns).index(ticker)
         if (i+1)%self.display_interval == 0:
-            print(f'Adjusted ticker {i+1} / {self.n}')
+            logging.info(f'Adjusted ticker {i+1} / {self.n}')
 
 
 def price_adj_experiment(n=None, verbose=True):
@@ -149,10 +150,12 @@ def price_adj_experiment(n=None, verbose=True):
         rel_error_after = (man_close - adj_close).abs().sum(axis=0) / adj_close.sum(axis=0)
         rel_error_after.name = 'After'
         rel_errors = pd.concat([rel_error_after, rel_error_before], axis=1)
-        print(f'\nSummed abs errors, relative to the summed prices: ')
-        print(rel_errors)
-        print(f'\nTotals abs. rel. errors (over all tickers): ')
-        print(rel_errors.sum(axis=0))
+        logging.info('')
+        logging.info(f'Summed abs errors, relative to the summed prices: ')
+        logging.info(rel_errors)
+        logging.info('')
+        logging.info(f'Totals abs. rel. errors (over all tickers): ')
+        logging.info(rel_errors.sum(axis=0))
 
         resid = man_close - adj_close
         pd.plotting.register_matplotlib_converters()
