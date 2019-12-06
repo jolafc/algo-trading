@@ -113,8 +113,8 @@ def cross_validate_strategy(
         )
         runtime = timer() - runtime
 
-        logging.info(f'CV WINDOW {i + 1} / {n_windows} ({runtime:.1f}s runtime):')
         logging.info('')
+        logging.info(f'CV WINDOW {i + 1} / {n_windows} ({runtime:.1f}s runtime):')
         formatted_pars = " ".join([f"{k}={v:.1f}" for k, v in optimized_parameters.items()])
         logging.info(f'OPTIMIZED wrt {output_metric}; opt. parameters: {formatted_pars}')
         logging.info(f'TEST results for {train_start.date()} to {train_end.date()} '
