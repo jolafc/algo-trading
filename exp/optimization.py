@@ -133,6 +133,7 @@ if __name__ == '__main__':
     n_iters = 10
     n_calls = 10
     n_rand = 5
+    from_chkpt = True
     for i in range(n_iters):
         print(f'\n\nITERATION {i+1} / {n_iters}')
         results = cross_validate_strategy(
@@ -141,7 +142,7 @@ if __name__ == '__main__':
             n_calls=n_calls,
             n_random_starts=n_rand if i == 0 else 0,
             output_metric=output_metric,
-            restart_from_chkpt=True,
+            restart_from_chkpt=from_chkpt if i == 0 else True,
             verbose=False,
             train_window_size=pd.to_timedelta('52w'),
             val_window_size=pd.to_timedelta('52w'),
