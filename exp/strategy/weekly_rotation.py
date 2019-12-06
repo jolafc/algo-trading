@@ -23,14 +23,6 @@ from exp.reporting import make_backtesting_report
 # TODO: Need the joiner and leaver data of the SP500 stocks and filtering functions
 # TODO: Forward pad: limit the number of padded values
 # TODO: Need to (re)-implement the RSI/EMA indicators.
-# TODO: Use a multi-columns levels DF as single data source and put the data loading stuff outside the WRRunner
-#       class.
-#       Then put the fit method contents in the predict(X), where predict expects a scile of that multi-columns DF.
-#       The score(X, y=None) then calls predict(X) and returns the yield only - like the current one does with the
-#       fit.
-#       Concern: isn't averaging across folds the same as optimizing over a larger window?
-#       Since train/validation split is meaningless here (no train); isn't it worthless to have an Estimator score
-#       being optimized instead of a single function output, without any explicit data handling by the HPO?
 
 
 # Current sprint tasks:
@@ -59,6 +51,7 @@ from exp.reporting import make_backtesting_report
 # 14d - HPO tuning: restrict search space to smallest meaningful range, converge n_iters, tune the train/val
 #       window sizes, AND tune the metric until the val set results are similar (wrt benchmark).
 # 14e - HPO: search space input in dedicated input .yaml file.
+# 14f - HPO: Log search space boundaries in .log file header.
 # V 15 - Out-of-sample metrics: Need a rolling window of (train) data -> parameters -> (validation) set run
 # V      for tuning the skopt opt. parameters, then a true (test) set result (like 2019 year).
 # V 16 - Find the source of the Nan bug in the trial run of # 15.

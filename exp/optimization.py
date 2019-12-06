@@ -145,15 +145,20 @@ if __name__ == '__main__':
     n_rand = 5
     from_chkpt = True
 
-    run_dir = os.path.join(RESULTS_DIR, f'run_{output_metric}_{datetime.now()}')
+    now = datetime.now()
+    run_dir = os.path.join(RESULTS_DIR, f'run_{output_metric}_{now}')
     os.makedirs(run_dir, exist_ok=False)
     log_file = os.path.join(run_dir, f'cv_opt.log')
     handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(filename=log_file)]
     logging.basicConfig(handlers=handlers, level=logging.INFO)
+
+    logging.info(f'RUN BEGIN: {now}')
+    runtime_total = timer()
     for i in range(n_iters):
         logging.info('')
         logging.info('')
         logging.info(f'ITERATION {i + 1} / {n_iters}')
+        runtime_iter = timer()
         results = cross_validate_strategy(
             StrategyRunner=WeeklyRotationRunner,
             max_lookback=200,
@@ -168,6 +173,11 @@ if __name__ == '__main__':
             start_date=pd.to_datetime('2001-01-01'),
             end_date=pd.to_datetime('2004-01-01'),
         )
+        runtime_iter = timer() - runtime_iter
+        logging.info(f'Iteration {i + 1}/{n_iters}: {runtime_iter:.1f}s runtime')
+    runtime_total = timer() - runtime_total
+    logging.info('')
+    logging.info(f'TOTAL RUNTIME: {runtime_total:.1f}s.')
 
     # train_strategy(
     #     StrategyRunner=WeeklyRotationRunner,
