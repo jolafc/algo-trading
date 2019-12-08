@@ -1,4 +1,5 @@
 import os
+import pickle
 import sys
 from timeit import default_timer as timer
 import logging
@@ -9,7 +10,7 @@ from matplotlib import pyplot as plt
 import skopt
 
 from exp import CHKPT_DEFAULT_FILE, SEED, RESULTS_DIR, YIELD, SHARPE, SORTINO, BYIELD, BSHARPE, BSORTINO, TRAIN_PREFIX, \
-    VAL_PREFIX, PLT_FILE_FORMAT, BENCH_PREFIX
+    VAL_PREFIX, PLT_FILE_FORMAT, BENCH_PREFIX, RESULTS_DEFAULT_FILENAME
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
 
@@ -151,27 +152,47 @@ def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
                          n_iters=2,
                          n_calls=1,
                          n_rand=1,
-                         from_chkpt=False):
-    now = datetime.now()
-    run_dir = os.path.join(RESULTS_DIR, f'run_{output_metric}_{now}')
-    os.makedirs(run_dir, exist_ok=False)
+                         resume=False):
+    if resume:
+        run_dirs = os.listdir(RESULTS_DIR)
+        run_dirs = [run_dir for run_dir in run_dirs if f'run_{output_metric}' in run_dir]
+        run_dirs = sorted(run_dirs)
+        run_dir = os.path.join(RESULTS_DIR, run_dirs[-1])
+        start_msg = f'RUN RESUMING: {run_dir}'
+
+        results_filename = os.path.join(run_dir, RESULTS_DEFAULT_FILENAME)
+        with open(results_filename, mode='rb') as results_file:
+            results_iter = pickle.load(results_file)
+
+    else:
+        now = datetime.now()
+        run_dir = os.path.join(RESULTS_DIR, f'run_{output_metric}_{now}')
+        os.makedirs(run_dir, exist_ok=False)
+        start_msg = f'RUN BEGIN: {now}'
+
+        results_filename = os.path.join(run_dir, RESULTS_DEFAULT_FILENAME)
+        results_iter = []
+    results_len = len(results_iter)
+
     log_file = os.path.join(run_dir, f'cv_opt.log')
     handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(filename=log_file)]
     logging.basicConfig(handlers=handlers, level=logging.INFO)
-
-    logging.info(f'RUN BEGIN: {now}')
-    dimensions = StrategyRunner(max_lookback=max_lookback).dimensions
     logging.info(f'')
+    logging.info(f'-'*80)
+    logging.info(start_msg)
+    logging.info(f'-'*80)
+    logging.info(f'')
+
+    dimensions = StrategyRunner(max_lookback=max_lookback).dimensions
     logging.info(f'OPTIMIZATION SPACE:')
     for name, dimension in dimensions.items():
         logging.info(f'{name}: {dimension}')
     runtime_total = timer()
 
-    results_iter = []
-    for i in range(n_iters):
+    for i in range(results_len, results_len+n_iters):
         logging.info('')
         logging.info('')
-        logging.info(f'ITERATION {i + 1} / {n_iters}')
+        logging.info(f'ITERATION {i + 1} / {results_len+n_iters}')
         runtime_iter = timer()
         results = cross_validate_strategy(
             StrategyRunner=StrategyRunner,
@@ -179,7 +200,7 @@ def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
             n_calls=n_calls,
             n_random_starts=n_rand if i == 0 else 0,
             output_metric=output_metric,
-            restart_from_chkpt=from_chkpt if i == 0 else True,
+            restart_from_chkpt=resume if i == 0 else True,
             verbose=False,
             run_dir=run_dir,
             train_window_size=pd.to_timedelta('52w'),
@@ -189,7 +210,11 @@ def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
         )
         results_iter.append(results)
         runtime_iter = timer() - runtime_iter
-        logging.info(f'Iteration {i + 1}/{n_iters}: {runtime_iter:.1f}s runtime')
+        logging.info(f'Iteration {i + 1}/{results_len+n_iters}: {runtime_iter:.1f}s runtime')
+
+    with open(results_filename, mode='wb') as results_file:
+        pickle.dump(results_iter, results_file)
+
     runtime_total = timer() - runtime_total
     logging.info('')
     logging.info(f'TOTAL RUNTIME: {runtime_total:.1f}s for run: {run_dir}')
@@ -197,7 +222,7 @@ def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
     return results_iter, run_dir
 
 
-def plot_strategy_cv_convergence(results_cvs, run_dir=RESULTS_DIR, basename=f'fold'):
+def plot_strategy_cv_convergence(results_iter, run_dir=RESULTS_DIR, basename=f'fold'):
     cv_index = results_iter[0].index
     results_cvs = []
     logging.info(f'')
@@ -233,7 +258,7 @@ if __name__ == '__main__':
                                                  n_iters=10,
                                                  n_calls=10,
                                                  n_rand=5,
-                                                 from_chkpt=False)
+                                                 resume=False)
 
     plot_strategy_cv_convergence(results_iter, run_dir=run_dir)
 

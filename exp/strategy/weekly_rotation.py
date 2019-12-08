@@ -47,12 +47,13 @@ from exp.reporting import make_backtesting_report
 # V 13 - HPO: do function optimization (in-sample) with random search (baseline)
 # V 14a - HPO: Bayesian for production, chkpt save/load,
 # V 14b - HPO: encapsulation,
-# 14c - HPO: parallelism, share loaded data (?)
+# ? 14c - HPO: parallelism, share loaded data (?)
 # 14d - HPO tuning: restrict search space to smallest meaningful range, converge n_iters, tune the train/val
 #       window sizes, AND tune the metric until the val set results are similar (wrt benchmark).
-# 14e - HPO: search space input in dedicated input .yaml file.
+# ? 14e - HPO: search space input in dedicated input .yaml file.
 # V 14f - HPO: Log search space boundaries in .log file header.
-# 14g - HPO: Convergence plots: train in full, val in dashed, benchmark in same, horizontal, one color per CV window.
+# V 14g - HPO: Convergence plots: train in full, val in dashed, benchmark in same, horizontal, one color per CV window.
+# V 14h - HPO: Resume last run capability
 # V 15 - Out-of-sample metrics: Need a rolling window of (train) data -> parameters -> (validation) set run
 # V      for tuning the skopt opt. parameters, then a true (test) set result (like 2019 year).
 # V 16 - Find the source of the Nan bug in the trial run of # 15.
@@ -161,13 +162,13 @@ class WeeklyRotationRunner(object):
         self.res_dir = res_dir
         self.output_metric = output_metric
         self.dimensions = OrderedDict(
-            lookback=skopt.space.Real(low=10, high=self.max_lookback, prior='log-uniform', name='lookback'),
+            lookback=skopt.space.Real(low=50, high=self.max_lookback, prior='log-uniform', name='lookback'),
             ### sma_tol=skopt.space.Real(low=-0.10, high=0.20, name='sma_tol'),
             ### volume_lookback=skopt.space.Real(low=1, high=self.max_lookback, prior='log-uniform', name='volume_lookback'),
             ### volume_threshold=skopt.space.Real(low=1., high=1.e8, prior='log-uniform', name='volume_threshold'),
             ### price_min=skopt.space.Real(low=0.1, high=200., prior='log-uniform', name='price_min'),
-            rsi_lookback=skopt.space.Real(low=1, high=100, prior='log-uniform', name='rsi_lookback'),
-            rsi_threshold=skopt.space.Real(low=50., high=60., name='rsi_threshold'),
+            rsi_lookback=skopt.space.Real(low=3, high=100, prior='log-uniform', name='rsi_lookback'),
+            rsi_threshold=skopt.space.Real(low=47., high=53., name='rsi_threshold'),
             day_of_trade=skopt.space.Categorical(categories=[0, 1, 2, 3, 4], transform='identity', name='day_of_trade'),
             ### n_positions=skopt.space.Real(low=1, high=50, prior='log-uniform', name='n_positions'),
         )
