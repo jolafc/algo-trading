@@ -1,9 +1,11 @@
 import logging
+import os
 
 import pandas as pd
 from matplotlib import pyplot as plt
 
-from exp import PL, YIELD, SHARPE, SORTINO, BPL, BYIELD, BSHARPE, BSORTINO, PLOT_DEFAULT_FILE
+from exp import PL, YIELD, SHARPE, SORTINO, BPL, BYIELD, BSHARPE, BSORTINO, PLOT_DEFAULT_FILE, RESULTS_DIR, \
+    CONVERGENCE_PLOT_DEFAULT_BASENAME, PLT_FILE_FORMAT, TRAIN_PREFIX, BENCH_PREFIX, VAL_PREFIX
 from exp.backtesting import Backtesting
 from exp.default_parameters import BENCKMARK_TICKER
 from exp.metrics import get_ib_fees, get_annualized_yield, get_sharpe_ratio, get_sortino_ratio
@@ -75,3 +77,32 @@ def make_backtesting_report(backtesting, prices, dates=None, verbose=True, plott
                }
 
     return results
+
+
+def plot_strategy_cv_convergence(results_iter, run_dir=RESULTS_DIR, basename=CONVERGENCE_PLOT_DEFAULT_BASENAME):
+    cv_index = results_iter[0].index
+    results_cvs = []
+    logging.info(f'')
+    for icv in cv_index:
+        results_fold = [df[icv:icv + 1] for df in results_iter]
+        results_fold = pd.concat(results_fold, axis=0, ignore_index=True)
+        results_cvs.append(results_fold)
+
+        train_start = results_fold.loc[0, 'train_start']
+        train_end = results_fold.loc[0, 'train_end']
+        val_start = results_fold.loc[0, 'val_start']
+        val_end = results_fold.loc[0, 'val_end']
+
+        plotfile = os.path.join(run_dir, f'{basename}_{icv:02d}.{PLT_FILE_FORMAT}')
+        plt.figure()
+        plt.title(f'Convergence for CV window:\n{train_start} to {train_end} and {val_start} to {val_end}')
+        plt.plot(results_fold[TRAIN_PREFIX + YIELD], '-r', label=f'Train yield')
+        plt.plot(results_fold[TRAIN_PREFIX + BENCH_PREFIX + YIELD], '-k', label=f'Train bench yield')
+        plt.plot(results_fold[VAL_PREFIX + YIELD], '--r', label=f'Val yield')
+        plt.plot(results_fold[VAL_PREFIX + BENCH_PREFIX + YIELD], '--k', label=f'Val bench yield')
+        plt.legend()
+        plt.savefig(plotfile)
+
+    plotfiles = os.path.join(run_dir, f'{basename}_{cv_index[0]:02d}.{PLT_FILE_FORMAT}')
+    plotfiles += f' -- {basename}_{cv_index[-1]:02d}.{PLT_FILE_FORMAT}'
+    logging.info(f'Plotted convergence for fold {cv_index[0]}-{cv_index[-1]} in files: {plotfiles}')

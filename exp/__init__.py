@@ -15,6 +15,7 @@ PLOTFILE = os.path.join(RESULTS_DIR, f'sample_data'+PLT_FILE_FORMAT)
 CHKPT_DEFAULT_FILE = os.path.join(RESULTS_DIR, f'checkpoint.pkl')
 PLOT_DEFAULT_FILE = os.path.join(RESULTS_DIR, f'unrealized_pl')
 RESULTS_DEFAULT_FILENAME = f'results_iter.pkl'
+CONVERGENCE_PLOT_DEFAULT_BASENAME = f'fold'
 
 BENCH_PREFIX = 'B'
 TRAIN_PREFIX = 'T'

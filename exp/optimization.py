@@ -6,11 +6,11 @@ import logging
 from datetime import datetime
 
 import pandas as pd
-from matplotlib import pyplot as plt
 import skopt
 
 from exp import CHKPT_DEFAULT_FILE, SEED, RESULTS_DIR, YIELD, SHARPE, SORTINO, BYIELD, BSHARPE, BSORTINO, TRAIN_PREFIX, \
-    VAL_PREFIX, PLT_FILE_FORMAT, BENCH_PREFIX, RESULTS_DEFAULT_FILENAME
+    VAL_PREFIX, RESULTS_DEFAULT_FILENAME
+from exp.reporting import plot_strategy_cv_convergence
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
 
@@ -178,9 +178,9 @@ def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
     handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(filename=log_file)]
     logging.basicConfig(handlers=handlers, level=logging.INFO)
     logging.info(f'')
-    logging.info(f'-'*80)
+    logging.info(f'-' * 80)
     logging.info(start_msg)
-    logging.info(f'-'*80)
+    logging.info(f'-' * 80)
     logging.info(f'')
 
     dimensions = StrategyRunner(max_lookback=max_lookback).dimensions
@@ -189,10 +189,10 @@ def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
         logging.info(f'{name}: {dimension}')
     runtime_total = timer()
 
-    for i in range(results_len, results_len+n_iters):
+    for i in range(results_len, results_len + n_iters):
         logging.info('')
         logging.info('')
-        logging.info(f'ITERATION {i + 1} / {results_len+n_iters}')
+        logging.info(f'ITERATION {i + 1} / {results_len + n_iters}')
         runtime_iter = timer()
         results = cross_validate_strategy(
             StrategyRunner=StrategyRunner,
@@ -210,57 +210,28 @@ def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
         )
         results_iter.append(results)
         runtime_iter = timer() - runtime_iter
-        logging.info(f'Iteration {i + 1}/{results_len+n_iters}: {runtime_iter:.1f}s runtime')
+        logging.info(f'Iteration {i + 1}/{results_len + n_iters}: {runtime_iter:.1f}s runtime')
 
     with open(results_filename, mode='wb') as results_file:
         pickle.dump(results_iter, results_file)
+
+    plot_strategy_cv_convergence(results_iter, run_dir=run_dir)
 
     runtime_total = timer() - runtime_total
     logging.info('')
     logging.info(f'TOTAL RUNTIME: {runtime_total:.1f}s for run: {run_dir}')
 
-    return results_iter, run_dir
-
-
-def plot_strategy_cv_convergence(results_iter, run_dir=RESULTS_DIR, basename=f'fold'):
-    cv_index = results_iter[0].index
-    results_cvs = []
-    logging.info(f'')
-    for icv in cv_index:
-        results_fold = [df[icv:icv + 1] for df in results_iter]
-        results_fold = pd.concat(results_fold, axis=0, ignore_index=True)
-        results_cvs.append(results_fold)
-
-        train_start = results_fold.loc[0, 'train_start']
-        train_end = results_fold.loc[0, 'train_end']
-        val_start = results_fold.loc[0, 'val_start']
-        val_end = results_fold.loc[0, 'val_end']
-
-        plotfile = os.path.join(run_dir, f'{basename}_{icv:02d}.{PLT_FILE_FORMAT}')
-        plt.figure()
-        plt.title(f'Convergence for CV window:\n{train_start} to {train_end} and {val_start} to {val_end}')
-        plt.plot(results_fold[TRAIN_PREFIX + YIELD], '-r', label=f'Train yield')
-        plt.plot(results_fold[TRAIN_PREFIX + BENCH_PREFIX + YIELD], '-k', label=f'Train bench yield')
-        plt.plot(results_fold[VAL_PREFIX + YIELD], '--r', label=f'Val yield')
-        plt.plot(results_fold[VAL_PREFIX + BENCH_PREFIX + YIELD], '--k', label=f'Val bench yield')
-        plt.legend()
-        plt.savefig(plotfile)
-
-    plotfiles = os.path.join(run_dir, f'{basename}_{cv_index[0]:02d}.{PLT_FILE_FORMAT}')
-    plotfiles += f' -- {basename}_{cv_index[-1]:02d}.{PLT_FILE_FORMAT}'
-    logging.info(f'Plotted convergence for fold {cv_index[0]}-{cv_index[-1]} in files: {plotfiles}')
+    return results_iter
 
 
 if __name__ == '__main__':
-    results_iter, run_dir = converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
-                                                 output_metric=YIELD,  # YIELD, SHARPE, SORTINO
-                                                 max_lookback=200,
-                                                 n_iters=10,
-                                                 n_calls=10,
-                                                 n_rand=5,
-                                                 resume=False)
-
-    plot_strategy_cv_convergence(results_iter, run_dir=run_dir)
+    results_iter = converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
+                                        output_metric=YIELD,  # YIELD, SHARPE, SORTINO
+                                        max_lookback=200,
+                                        n_iters=10,
+                                        n_calls=10,
+                                        n_rand=0,
+                                        resume=True)
 
     # train_strategy(
     #     StrategyRunner=WeeklyRotationRunner,
