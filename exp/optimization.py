@@ -139,7 +139,9 @@ def cross_validate_strategy(
 
 
 if __name__ == '__main__':
+    StrategyRunner = WeeklyRotationRunner
     output_metric = YIELD  # YIELD, SHARPE, SORTINO
+    max_lookback = 200
     n_iters = 10
     n_calls = 10
     n_rand = 5
@@ -153,6 +155,11 @@ if __name__ == '__main__':
     logging.basicConfig(handlers=handlers, level=logging.INFO)
 
     logging.info(f'RUN BEGIN: {now}')
+    dimensions = StrategyRunner(max_lookback=max_lookback).dimensions
+    logging.info(f'')
+    logging.info(f'OPTIMIZATION SPACE:')
+    for name, dimension in dimensions.items():
+        logging.info(f'{name}: {dimension}')
     runtime_total = timer()
     for i in range(n_iters):
         logging.info('')
@@ -160,8 +167,8 @@ if __name__ == '__main__':
         logging.info(f'ITERATION {i + 1} / {n_iters}')
         runtime_iter = timer()
         results = cross_validate_strategy(
-            StrategyRunner=WeeklyRotationRunner,
-            max_lookback=200,
+            StrategyRunner=StrategyRunner,
+            max_lookback=max_lookback,
             n_calls=n_calls,
             n_random_starts=n_rand if i == 0 else 0,
             output_metric=output_metric,

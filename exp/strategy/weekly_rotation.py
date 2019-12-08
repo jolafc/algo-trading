@@ -51,7 +51,8 @@ from exp.reporting import make_backtesting_report
 # 14d - HPO tuning: restrict search space to smallest meaningful range, converge n_iters, tune the train/val
 #       window sizes, AND tune the metric until the val set results are similar (wrt benchmark).
 # 14e - HPO: search space input in dedicated input .yaml file.
-# 14f - HPO: Log search space boundaries in .log file header.
+# V 14f - HPO: Log search space boundaries in .log file header.
+# 14g - HPO: Convergence plots: train in full, val in dashed, benchmark in same, horizontal, one color per CV window.
 # V 15 - Out-of-sample metrics: Need a rolling window of (train) data -> parameters -> (validation) set run
 # V      for tuning the skopt opt. parameters, then a true (test) set result (like 2019 year).
 # V 16 - Find the source of the Nan bug in the trial run of # 15.
@@ -166,7 +167,7 @@ class WeeklyRotationRunner(object):
             ### volume_threshold=skopt.space.Real(low=1., high=1.e8, prior='log-uniform', name='volume_threshold'),
             ### price_min=skopt.space.Real(low=0.1, high=200., prior='log-uniform', name='price_min'),
             rsi_lookback=skopt.space.Real(low=1, high=100, prior='log-uniform', name='rsi_lookback'),
-            rsi_threshold=skopt.space.Real(low=45., high=55., name='rsi_threshold'),
+            rsi_threshold=skopt.space.Real(low=50., high=60., name='rsi_threshold'),
             day_of_trade=skopt.space.Categorical(categories=[0, 1, 2, 3, 4], transform='identity', name='day_of_trade'),
             ### n_positions=skopt.space.Real(low=1, high=50, prior='log-uniform', name='n_positions'),
         )
