@@ -21,9 +21,9 @@ def test_optimization():
         val_end=pd.to_datetime('2018-12-31'),
         max_lookback=200,
         n_calls=5,
-        n_random_starts=1,
+        n_rand=1,
         output_metric=YIELD,
-        restart_from_chkpt=False,
+        resume=False,
         chkpt_file=CHKPT_TEST_FILE,
     )
 

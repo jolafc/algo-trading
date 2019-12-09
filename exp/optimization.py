@@ -9,7 +9,7 @@ import pandas as pd
 import skopt
 
 from exp import CHKPT_DEFAULT_FILE, SEED, RESULTS_DIR, YIELD, SHARPE, SORTINO, BYIELD, BSHARPE, BSORTINO, TRAIN_PREFIX, \
-    VAL_PREFIX, RESULTS_DEFAULT_FILENAME
+    VAL_PREFIX, RESULTS_DEFAULT_FILENAME, LOG_DEFAULT_FILENAME
 from exp.reporting import plot_strategy_cv_convergence
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
@@ -22,23 +22,24 @@ def train_strategy(
         val_end=pd.to_datetime('2018-12-31'),
         max_lookback=200,
         n_calls=100,
-        n_random_starts=5,
+        n_rand=5,
         output_metric=YIELD,
-        restart_from_chkpt=False,
+        resume=False,
         chkpt_file=CHKPT_DEFAULT_FILE,
         verbose=True,
 ):
+    run_dir = os.path.dirname(chkpt_file)
     runner = StrategyRunner(start_date_requested=train_start,
                             end_date_requested=train_end,
                             max_lookback=max_lookback,
                             verbose=False,
-                            res_dir=os.path.dirname(chkpt_file),
+                            res_dir=run_dir,
                             output_metric=output_metric)
 
     dimensions_list = list(runner.dimensions.values())
 
     checkpoint_saver = skopt.callbacks.CheckpointSaver(chkpt_file, compress=3)
-    if os.path.exists(chkpt_file) and restart_from_chkpt:
+    if os.path.exists(chkpt_file) and resume:
         res = skopt.load(chkpt_file)
         x0 = res.x_iters
         y0 = res.func_vals
@@ -46,12 +47,13 @@ def train_strategy(
     else:
         x0 = None
         y0 = None
-        n_random_starts = n_random_starts
+        n_random_starts = n_rand
 
     hpo_results = skopt.forest_minimize(func=runner.skopt_func, dimensions=dimensions_list,
                                         n_calls=n_calls, n_random_starts=n_random_starts,
                                         base_estimator='ET', acq_func='EI',
-                                        x0=x0, y0=y0, random_state=SEED, verbose=verbose, callback=[checkpoint_saver],
+                                        x0=x0, y0=y0, random_state=SEED, verbose=verbose,
+                                        callback=[checkpoint_saver],
                                         n_points=10000, xi=0.01, kappa=1.96, n_jobs=1)
 
     if verbose:
@@ -73,9 +75,9 @@ def cross_validate_strategy(
         StrategyRunner=WeeklyRotationRunner,
         max_lookback=200,
         n_calls=10,
-        n_random_starts=5,
+        n_rand=5,
         output_metric=YIELD,
-        restart_from_chkpt=False,
+        resume=False,
         verbose=False,
         run_dir=RESULTS_DIR,
         train_window_size=pd.to_timedelta('52w'),
@@ -87,9 +89,9 @@ def cross_validate_strategy(
         StrategyRunner=StrategyRunner,
         max_lookback=max_lookback,
         n_calls=n_calls,
-        n_random_starts=n_random_starts,
+        n_rand=n_rand,
         output_metric=output_metric,
-        restart_from_chkpt=restart_from_chkpt,
+        resume=resume,
         verbose=verbose,
     )
 
@@ -101,8 +103,7 @@ def cross_validate_strategy(
         train_end = train_start + train_window_size
         val_start = train_end
         val_end = val_start + val_window_size
-        chkpt_file = os.path.join(run_dir,
-                                  f'checkpoint_{train_start.date()}_{train_end.date()}_{output_metric}.pkl')
+        chkpt_file = os.path.join(run_dir, f'checkpoint_{train_start.date()}_{train_end.date()}_{output_metric}.pkl')
 
         runtime = timer()
         train_metrics, val_metrics, optimized_parameters = train_strategy(
@@ -146,18 +147,18 @@ def cross_validate_strategy(
     return results
 
 
-def converge_cv_strategy(train_window_size=pd.to_timedelta('52w'),
-                         val_window_size=pd.to_timedelta('52w'),
-                         start_date=pd.to_datetime('2001-01-01'),
-                         end_date=pd.to_datetime('2004-01-01'),
-                         StrategyRunner=WeeklyRotationRunner,
-                         output_metric=YIELD,  # YIELD, SHARPE, SORTINO
-                         max_lookback=200,
-                         n_iters=2,
-                         n_calls=1,
-                         n_rand=1,
-                         resume=False,
-                         verbose=False):
+def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
+                  val_window_size=pd.to_timedelta('52w'),
+                  start_date=pd.to_datetime('2001-01-01'),
+                  end_date=pd.to_datetime('2004-01-01'),
+                  StrategyRunner=WeeklyRotationRunner,
+                  output_metric=YIELD,  # YIELD, SHARPE, SORTINO
+                  max_lookback=200,
+                  n_iters=2,
+                  n_calls=1,
+                  n_rand=1,
+                  resume=False,
+                  verbose=False):
     if resume:
         run_dirs = os.listdir(RESULTS_DIR)
         run_dirs = [run_dir for run_dir in run_dirs if f'run_{output_metric}' in run_dir]
@@ -179,7 +180,7 @@ def converge_cv_strategy(train_window_size=pd.to_timedelta('52w'),
         results_iter = []
     results_len = len(results_iter)
 
-    log_file = os.path.join(run_dir, f'cv_opt.log')
+    log_file = os.path.join(run_dir, LOG_DEFAULT_FILENAME)
     handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(filename=log_file)]
     logging.basicConfig(handlers=handlers, level=logging.INFO)
     logging.info(f'')
@@ -199,13 +200,14 @@ def converge_cv_strategy(train_window_size=pd.to_timedelta('52w'),
         logging.info('')
         logging.info(f'ITERATION {i + 1} / {results_len + n_iters}')
         runtime_iter = timer()
+
         results = cross_validate_strategy(
             StrategyRunner=StrategyRunner,
             max_lookback=max_lookback,
             n_calls=n_calls,
-            n_random_starts=n_rand if i == 0 else 0,
+            n_rand=n_rand if i == 0 else 0,
             output_metric=output_metric,
-            restart_from_chkpt=resume if i == 0 else True,
+            resume=resume if i == 0 else True,
             verbose=verbose,
             run_dir=run_dir,
             train_window_size=train_window_size,
@@ -217,10 +219,10 @@ def converge_cv_strategy(train_window_size=pd.to_timedelta('52w'),
         runtime_iter = timer() - runtime_iter
         logging.info(f'Iteration {i + 1}/{results_len + n_iters}: {runtime_iter:.1f}s runtime')
 
-    with open(results_filename, mode='wb') as results_file:
-        pickle.dump(results_iter, results_file)
+        with open(results_filename, mode='wb') as results_file:
+            pickle.dump(results_iter, results_file)
 
-    plot_strategy_cv_convergence(results_iter, run_dir=run_dir)
+        plot_strategy_cv_convergence(results_iter, run_dir=run_dir)
 
     runtime_total = timer() - runtime_total
     logging.info('')
@@ -230,30 +232,15 @@ def converge_cv_strategy(train_window_size=pd.to_timedelta('52w'),
 
 
 if __name__ == '__main__':
-    results_iter = converge_cv_strategy(train_window_size=pd.to_timedelta('104w'),
-                                        val_window_size=pd.to_timedelta('26w'),
-                                        start_date=pd.to_datetime('2001-01-01'),
-                                        end_date=pd.to_datetime('2018-01-01'),
-                                        StrategyRunner=WeeklyRotationRunner,
-                                        output_metric=YIELD,  # YIELD, SHARPE, SORTINO
-                                        max_lookback=200,
-                                        n_iters=10,
-                                        n_calls=10,
-                                        n_rand=10,
-                                        resume=False,
-                                        verbose=False)
-
-    # train_strategy(
-    #     StrategyRunner=WeeklyRotationRunner,
-    #     train_start=pd.to_datetime('2019-01-31'),
-    #     train_end=pd.to_datetime('2019-10-31'),
-    #     val_start=pd.to_datetime('2018-01-01'),
-    #     val_end=pd.to_datetime('2018-12-31'),
-    #     max_lookback=200,
-    #     n_calls=0,
-    #     n_random_starts=5,
-    #     output_metric='annualized_yield',
-    #     restart_from_chkpt=True,
-    #     chkpt_file=CHKPT_DEFAULT_FILE,
-    #     verbose=True,
-    # )
+    results_iter = cv_opt_driver(train_window_size=pd.to_timedelta('104w'),
+                                 val_window_size=pd.to_timedelta('26w'),
+                                 start_date=pd.to_datetime('2001-01-01'),
+                                 end_date=pd.to_datetime('2018-01-01'),
+                                 StrategyRunner=WeeklyRotationRunner,
+                                 output_metric=YIELD,  # YIELD, SHARPE, SORTINO
+                                 max_lookback=200,
+                                 n_iters=10,
+                                 n_calls=10,
+                                 n_rand=10,
+                                 resume=False,
+                                 verbose=False)
