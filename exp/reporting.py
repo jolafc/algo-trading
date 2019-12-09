@@ -95,11 +95,14 @@ def plot_strategy_cv_convergence(results_iter, run_dir=RESULTS_DIR, basename=CON
 
         plotfile = os.path.join(run_dir, f'{basename}_{icv:02d}.{PLT_FILE_FORMAT}')
         plt.figure()
-        plt.title(f'Convergence for CV window:\n{train_start} to {train_end} and {val_start} to {val_end}')
+        plt.title(f'Convergence for CV window {icv+1}/{cv_index[-1]+1}:\n{train_start} to {train_end} and {val_start} to {val_end}')
         plt.plot(results_fold[TRAIN_PREFIX + YIELD], '-r', label=f'Train yield')
         plt.plot(results_fold[TRAIN_PREFIX + BENCH_PREFIX + YIELD], '-k', label=f'Train bench yield')
         plt.plot(results_fold[VAL_PREFIX + YIELD], '--r', label=f'Val yield')
         plt.plot(results_fold[VAL_PREFIX + BENCH_PREFIX + YIELD], '--k', label=f'Val bench yield')
+        x = results_fold.index
+        y = [0.]*len(x)
+        plt.plot(x, y, ':k')
         plt.legend()
         plt.savefig(plotfile)
 

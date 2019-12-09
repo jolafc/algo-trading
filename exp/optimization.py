@@ -146,7 +146,11 @@ def cross_validate_strategy(
     return results
 
 
-def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
+def converge_cv_strategy(train_window_size=pd.to_timedelta('52w'),
+                         val_window_size=pd.to_timedelta('52w'),
+                         start_date=pd.to_datetime('2001-01-01'),
+                         end_date=pd.to_datetime('2004-01-01'),
+                         StrategyRunner=WeeklyRotationRunner,
                          output_metric=YIELD,  # YIELD, SHARPE, SORTINO
                          max_lookback=200,
                          n_iters=2,
@@ -203,10 +207,10 @@ def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
             restart_from_chkpt=resume if i == 0 else True,
             verbose=False,
             run_dir=run_dir,
-            train_window_size=pd.to_timedelta('52w'),
-            val_window_size=pd.to_timedelta('52w'),
-            start_date=pd.to_datetime('2001-01-01'),
-            end_date=pd.to_datetime('2004-01-01'),
+            train_window_size=train_window_size,
+            val_window_size=val_window_size,
+            start_date=start_date,
+            end_date=end_date,
         )
         results_iter.append(results)
         runtime_iter = timer() - runtime_iter
@@ -225,13 +229,17 @@ def converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
 
 
 if __name__ == '__main__':
-    results_iter = converge_cv_strategy(StrategyRunner=WeeklyRotationRunner,
+    results_iter = converge_cv_strategy(train_window_size=pd.to_timedelta('104w'),
+                                        val_window_size=pd.to_timedelta('26w'),
+                                        start_date=pd.to_datetime('2001-01-01'),
+                                        end_date=pd.to_datetime('2018-01-01'),
+                                        StrategyRunner=WeeklyRotationRunner,
                                         output_metric=YIELD,  # YIELD, SHARPE, SORTINO
                                         max_lookback=200,
                                         n_iters=10,
                                         n_calls=10,
-                                        n_rand=0,
-                                        resume=True)
+                                        n_rand=10,
+                                        resume=False)
 
     # train_strategy(
     #     StrategyRunner=WeeklyRotationRunner,
