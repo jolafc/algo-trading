@@ -51,6 +51,7 @@ class Backtesting(object):
             notional = get_notional(balance=balance, n_buys=len(buys), price_min=strategy.price_min)
             for buy in buys:
                 price = prices.loc[date, buy] if high is None else high.loc[date, buy]
+                assert not pd.isna(price), f'For buy orders, Backtesting does not handle price=np.nan. Here, for {buy}@{date}, price={price}.'
                 position = notional // price
                 fee = get_ib_fees(position=position, price=price)
 

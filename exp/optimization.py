@@ -156,7 +156,8 @@ def converge_cv_strategy(train_window_size=pd.to_timedelta('52w'),
                          n_iters=2,
                          n_calls=1,
                          n_rand=1,
-                         resume=False):
+                         resume=False,
+                         verbose=False):
     if resume:
         run_dirs = os.listdir(RESULTS_DIR)
         run_dirs = [run_dir for run_dir in run_dirs if f'run_{output_metric}' in run_dir]
@@ -205,7 +206,7 @@ def converge_cv_strategy(train_window_size=pd.to_timedelta('52w'),
             n_random_starts=n_rand if i == 0 else 0,
             output_metric=output_metric,
             restart_from_chkpt=resume if i == 0 else True,
-            verbose=False,
+            verbose=verbose,
             run_dir=run_dir,
             train_window_size=train_window_size,
             val_window_size=val_window_size,
@@ -239,7 +240,8 @@ if __name__ == '__main__':
                                         n_iters=10,
                                         n_calls=10,
                                         n_rand=10,
-                                        resume=False)
+                                        resume=False,
+                                        verbose=False)
 
     # train_strategy(
     #     StrategyRunner=WeeklyRotationRunner,

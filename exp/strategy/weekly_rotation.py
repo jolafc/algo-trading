@@ -211,6 +211,8 @@ class WeeklyRotationRunner(object):
                                                                            verbose=self.verbose)
 
         execution_prices = data_by_feature[EXECUTION_PRICE_COLUMN]
+        mask = (~data_by_feature[ADJUSTED_CLOSE_COLUMN].isna()) & (data_by_feature[EXECUTION_PRICE_COLUMN].isna())
+        execution_prices[mask] = data_by_feature[ADJUSTED_CLOSE_COLUMN][mask]
 
         strategy = WeelkyRotationStrategy(start_date=start_date,
                                           end_date=end_date,
