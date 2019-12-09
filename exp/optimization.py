@@ -1,12 +1,14 @@
 import os
 import pickle
 import sys
+from functools import partial
 from timeit import default_timer as timer
 import logging
 from datetime import datetime
 
 import pandas as pd
 import skopt
+from joblib import Parallel, delayed
 
 from exp import CHKPT_DEFAULT_FILE, SEED, RESULTS_DIR, YIELD, SHARPE, SORTINO, BYIELD, BSHARPE, BSORTINO, TRAIN_PREFIX, \
     VAL_PREFIX, RESULTS_DEFAULT_FILENAME, LOG_DEFAULT_FILENAME
@@ -71,6 +73,57 @@ def train_strategy(
     return train_metrics, val_metrics, optimized_parameters
 
 
+def train_strategy_driver(i, n_windows, kwargs,
+                          run_dir=RESULTS_DIR,
+                          train_window_size=pd.to_timedelta('52w'),
+                          val_window_size=pd.to_timedelta('52w'),
+                          start_date=pd.to_datetime('2001-01-01')):
+    output_metric = kwargs['output_metric']
+    train_start = start_date + i * val_window_size
+    train_end = train_start + train_window_size
+    val_start = train_end
+    val_end = val_start + val_window_size
+    chkpt_file = os.path.join(run_dir, f'checkpoint_{train_start.date()}_{train_end.date()}_{output_metric}.pkl')
+
+    runtime = timer()
+    train_metrics, val_metrics, optimized_parameters = train_strategy(
+        train_start=train_start,
+        train_end=train_end,
+        val_start=val_start,
+        val_end=val_end,
+        chkpt_file=chkpt_file,
+        **kwargs
+    )
+    runtime = timer() - runtime
+
+    msg_list = []
+    msg_list.append('')
+    msg_list.append(f'CV WINDOW {i + 1} / {n_windows} ({runtime:.1f}s runtime):')
+    formatted_pars = " ".join([f"{k}={v:.1f}" for k, v in optimized_parameters.items()])
+    msg_list.append(f'OPTIMIZED wrt {output_metric}; opt. parameters: {formatted_pars}')
+    msg_list.append(f'TEST results for {train_start.date()} to {train_end.date()} '
+                    f'are {100 * train_metrics[YIELD]:.1f}% / {train_metrics[SHARPE]:.3f} sharpe'
+                    f' / {train_metrics[SORTINO]:.3f} sortino '
+                    f'VS benchmark {100 * train_metrics[BYIELD]:.1f}% / {train_metrics[BSHARPE]:.3f} sharpe'
+                    f' / {train_metrics[BSORTINO]:.3f} sortino ')
+    msg_list.append(f'VAL  results for {val_start.date()} to {val_end.date()} '
+                    f'are {100 * val_metrics[YIELD]:.1f}% / {val_metrics[SHARPE]:.3f} sharpe'
+                    f' / {val_metrics[SORTINO]:.3f} sortino '
+                    f'VS benchmark {100 * val_metrics[BYIELD]:.1f}% / {val_metrics[BSHARPE]:.3f} sharpe'
+                    f' / {val_metrics[BSORTINO]:.3f} sortino ')
+
+    metrics = dict(
+        train_start=train_start.date(),
+        train_end=train_end.date(),
+        val_start=val_start.date(),
+        val_end=val_end.date(),
+    )
+    metrics.update({TRAIN_PREFIX + k: v for k, v in train_metrics.items()})
+    metrics.update({VAL_PREFIX + k: v for k, v in val_metrics.items()})
+
+    return metrics, msg_list
+
+
 def cross_validate_strategy(
         StrategyRunner=WeeklyRotationRunner,
         max_lookback=200,
@@ -79,6 +132,7 @@ def cross_validate_strategy(
         output_metric=YIELD,
         resume=False,
         verbose=False,
+        n_jobs=-1,
         run_dir=RESULTS_DIR,
         train_window_size=pd.to_timedelta('52w'),
         val_window_size=pd.to_timedelta('52w'),
@@ -92,56 +146,25 @@ def cross_validate_strategy(
         n_rand=n_rand,
         output_metric=output_metric,
         resume=resume,
-        verbose=verbose,
-    )
-
+        verbose=verbose)
     n_windows = (end_date - start_date - train_window_size) // val_window_size
+    f = partial(train_strategy_driver,
+                n_windows=n_windows,
+                kwargs=kwargs,
+                run_dir=run_dir,
+                train_window_size=train_window_size,
+                val_window_size=val_window_size,
+                start_date=start_date)
 
-    results = []
-    for i in range(n_windows):
-        train_start = start_date + i * val_window_size
-        train_end = train_start + train_window_size
-        val_start = train_end
-        val_end = val_start + val_window_size
-        chkpt_file = os.path.join(run_dir, f'checkpoint_{train_start.date()}_{train_end.date()}_{output_metric}.pkl')
+    # outputs = [f(i) for i in range(n_windows)]
+    outputs = Parallel(n_jobs=n_jobs)(delayed(f)(i) for i in range(n_windows))
 
-        runtime = timer()
-        train_metrics, val_metrics, optimized_parameters = train_strategy(
-            train_start=train_start,
-            train_end=train_end,
-            val_start=val_start,
-            val_end=val_end,
-            chkpt_file=chkpt_file,
-            **kwargs
-        )
-        runtime = timer() - runtime
+    results = [result for result, msg_list in outputs]
+    msg_lists = [msg_list for result, msg_list in outputs]
 
-        logging.info('')
-        logging.info(f'CV WINDOW {i + 1} / {n_windows} ({runtime:.1f}s runtime):')
-        formatted_pars = " ".join([f"{k}={v:.1f}" for k, v in optimized_parameters.items()])
-        logging.info(f'OPTIMIZED wrt {output_metric}; opt. parameters: {formatted_pars}')
-        logging.info(f'TEST results for {train_start.date()} to {train_end.date()} '
-                     f'are {100 * train_metrics[YIELD]:.1f}% / {train_metrics[SHARPE]:.3f} sharpe'
-                     f' / {train_metrics[SORTINO]:.3f} sortino '
-                     f'VS benchmark {100 * train_metrics[BYIELD]:.1f}% / {train_metrics[BSHARPE]:.3f} sharpe'
-                     f' / {train_metrics[BSORTINO]:.3f} sortino ')
-        logging.info(f'VAL  results for {val_start.date()} to {val_end.date()} '
-                     f'are {100 * val_metrics[YIELD]:.1f}% / {val_metrics[SHARPE]:.3f} sharpe'
-                     f' / {val_metrics[SORTINO]:.3f} sortino '
-                     f'VS benchmark {100 * val_metrics[BYIELD]:.1f}% / {val_metrics[BSHARPE]:.3f} sharpe'
-                     f' / {val_metrics[BSORTINO]:.3f} sortino ')
-
-        metrics = dict(
-            train_start=train_start.date(),
-            train_end=train_end.date(),
-            val_start=val_start.date(),
-            val_end=val_end.date(),
-        )
-        metrics.update({TRAIN_PREFIX + k: v for k, v in train_metrics.items()})
-        metrics.update({VAL_PREFIX + k: v for k, v in val_metrics.items()})
-
-        results.append(metrics)
-
+    for msg_list in msg_lists:
+        for msg in msg_list:
+            logging.info(msg)
     results = pd.DataFrame(results)
 
     return results
@@ -158,7 +181,11 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
                   n_calls=1,
                   n_rand=1,
                   resume=False,
-                  verbose=False):
+                  verbose=False,
+                  n_jobs=-1):
+    assert (not verbose) or (n_jobs == 1), \
+        f'Verbose logging only available for sequential runs; please either set verbose=False or n_jobs=1'
+
     if resume:
         run_dirs = os.listdir(RESULTS_DIR)
         run_dirs = [run_dir for run_dir in run_dirs if f'run_{output_metric}' in run_dir]
@@ -209,6 +236,7 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
             output_metric=output_metric,
             resume=resume if i == 0 else True,
             verbose=verbose,
+            n_jobs=n_jobs,
             run_dir=run_dir,
             train_window_size=train_window_size,
             val_window_size=val_window_size,
@@ -232,15 +260,16 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
 
 
 if __name__ == '__main__':
-    results_iter = cv_opt_driver(train_window_size=pd.to_timedelta('104w'),
+    results_iter = cv_opt_driver(train_window_size=pd.to_timedelta('26w'),
                                  val_window_size=pd.to_timedelta('26w'),
                                  start_date=pd.to_datetime('2001-01-01'),
-                                 end_date=pd.to_datetime('2018-01-01'),
+                                 end_date=pd.to_datetime('2003-07-01'),
                                  StrategyRunner=WeeklyRotationRunner,
                                  output_metric=YIELD,  # YIELD, SHARPE, SORTINO
                                  max_lookback=200,
-                                 n_iters=10,
-                                 n_calls=10,
-                                 n_rand=10,
+                                 n_iters=2,
+                                 n_calls=1,
+                                 n_rand=1,
                                  resume=False,
-                                 verbose=False)
+                                 verbose=False,
+                                 n_jobs=-1)
