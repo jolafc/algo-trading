@@ -51,12 +51,17 @@ def train_strategy(
         y0 = None
         n_random_starts = n_rand
 
-    hpo_results = skopt.forest_minimize(func=runner.skopt_func, dimensions=dimensions_list,
-                                        n_calls=n_calls, n_random_starts=n_random_starts,
-                                        base_estimator='ET', acq_func='EI',
-                                        x0=x0, y0=y0, random_state=SEED, verbose=verbose,
-                                        callback=[checkpoint_saver],
-                                        n_points=10000, xi=0.01, kappa=1.96, n_jobs=1)
+    # hpo_results = skopt.forest_minimize(
+    # hpo_results = skopt.gbrt_minimize(
+    hpo_results = skopt.gp_minimize(
+        func=runner.skopt_func, dimensions=dimensions_list,
+        n_calls=n_calls, n_random_starts=n_random_starts,
+        # base_estimator='ET', acq_func='LCB,
+        # base_estimator=None, acq_func='LCB', acq_optimizer='auto',
+        base_estimator=None, acq_func='gp_hedge', acq_optimizer='auto',
+        x0=x0, y0=y0, random_state=SEED, verbose=verbose,
+        callback=[checkpoint_saver],
+        n_points=10000, xi=0.01, kappa=1.96, n_jobs=1)
 
     if verbose:
         logging.info(f'Optimal yield is: {hpo_results.fun} at parameters {hpo_results.x}')
@@ -260,16 +265,16 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
 
 
 if __name__ == '__main__':
-    results_iter = cv_opt_driver(train_window_size=pd.to_timedelta('26w'),
+    results_iter = cv_opt_driver(train_window_size=pd.to_timedelta('260w'),
                                  val_window_size=pd.to_timedelta('26w'),
                                  start_date=pd.to_datetime('2001-01-01'),
-                                 end_date=pd.to_datetime('2003-07-01'),
+                                 end_date=pd.to_datetime('2008-01-01'),
                                  StrategyRunner=WeeklyRotationRunner,
                                  output_metric=YIELD,  # YIELD, SHARPE, SORTINO
                                  max_lookback=200,
-                                 n_iters=2,
-                                 n_calls=1,
-                                 n_rand=1,
+                                 n_iters=10,
+                                 n_calls=10,
+                                 n_rand=10,
                                  resume=False,
                                  verbose=False,
                                  n_jobs=-1)
