@@ -5,6 +5,7 @@ from functools import partial
 from timeit import default_timer as timer
 import logging
 from datetime import datetime
+from typing import Union
 
 import pandas as pd
 import skopt
@@ -78,16 +79,16 @@ def train_strategy(
     return train_metrics, val_metrics, optimized_parameters
 
 
-def train_strategy_driver(i, n_windows, kwargs,
+def train_strategy_driver(i, n_folds, kwargs,
                           run_dir=RESULTS_DIR,
                           train_window_size=pd.to_timedelta('52w'),
                           val_window_size=pd.to_timedelta('52w'),
-                          start_date=pd.to_datetime('2001-01-01')):
+                          val_start_date=pd.to_datetime('2001-01-01')):
     output_metric = kwargs['output_metric']
-    train_start = start_date + i * val_window_size
-    train_end = train_start + train_window_size
-    val_start = train_end
+    val_start = val_start_date + i * val_window_size
     val_end = val_start + val_window_size
+    train_end = val_start
+    train_start = train_end - train_window_size
     chkpt_file = os.path.join(run_dir, f'checkpoint_{train_start.date()}_{train_end.date()}_{output_metric}.pkl')
 
     runtime = timer()
@@ -103,7 +104,7 @@ def train_strategy_driver(i, n_windows, kwargs,
 
     msg_list = []
     msg_list.append('')
-    msg_list.append(f'CV WINDOW {i + 1} / {n_windows} ({runtime:.1f}s runtime):')
+    msg_list.append(f'CV WINDOW {i + 1} / {n_folds} ({runtime:.1f}s runtime):')
     formatted_pars = " ".join([f"{k}={v:.1f}" for k, v in optimized_parameters.items()])
     msg_list.append(f'OPTIMIZED wrt {output_metric}; opt. parameters: {formatted_pars}')
     msg_list.append(f'TEST results for {train_start.date()} to {train_end.date()} '
@@ -141,8 +142,8 @@ def cross_validate_strategy(
         run_dir=RESULTS_DIR,
         train_window_size=pd.to_timedelta('52w'),
         val_window_size=pd.to_timedelta('52w'),
-        start_date=pd.to_datetime('2001-01-01'),
-        end_date=pd.to_datetime('2004-01-01'),
+        val_start_date=pd.to_datetime('2001-01-01'),
+        n_folds=1,
 ):
     kwargs = dict(
         StrategyRunner=StrategyRunner,
@@ -152,17 +153,16 @@ def cross_validate_strategy(
         output_metric=output_metric,
         resume=resume,
         verbose=verbose)
-    n_windows = (end_date - start_date - train_window_size) // val_window_size
     f = partial(train_strategy_driver,
-                n_windows=n_windows,
+                n_folds=n_folds,
                 kwargs=kwargs,
                 run_dir=run_dir,
                 train_window_size=train_window_size,
                 val_window_size=val_window_size,
-                start_date=start_date)
+                val_start_date=val_start_date)
 
     # outputs = [f(i) for i in range(n_windows)]
-    outputs = Parallel(n_jobs=n_jobs)(delayed(f)(i) for i in range(n_windows))
+    outputs = Parallel(n_jobs=n_jobs)(delayed(f)(i) for i in range(n_folds))
 
     results = [result for result, msg_list in outputs]
     msg_lists = [msg_list for result, msg_list in outputs]
@@ -177,15 +177,15 @@ def cross_validate_strategy(
 
 def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
                   val_window_size=pd.to_timedelta('52w'),
-                  start_date=pd.to_datetime('2001-01-01'),
-                  end_date=pd.to_datetime('2004-01-01'),
+                  val_start_date=pd.to_datetime('2001-01-01'),
+                  n_folds=1,
                   StrategyRunner=WeeklyRotationRunner,
                   output_metric=YIELD,  # YIELD, SHARPE, SORTINO
                   max_lookback=200,
                   n_iters=2,
                   n_calls=1,
                   n_rand=1,
-                  resume=False,
+                  resume: Union[str, bool] = False,
                   verbose=False,
                   n_jobs=-1):
     assert (not verbose) or (n_jobs == 1), \
@@ -195,7 +195,11 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
         run_dirs = os.listdir(RESULTS_DIR)
         run_dirs = [run_dir for run_dir in run_dirs if f'run_{output_metric}' in run_dir]
         run_dirs = sorted(run_dirs)
-        run_dir = os.path.join(RESULTS_DIR, run_dirs[-1])
+        run_dir = resume if type(resume) is str else run_dirs[-1]
+        assert run_dir in run_dirs, \
+            f'The requested run to be resumes, {run_dir}, does not exist in the results directory. ' \
+            f'The list of valid runs is: {run_dirs}'
+        run_dir = os.path.join(RESULTS_DIR, run_dir)
         start_msg = f'RUN RESUMING: {run_dir}'
 
         results_filename = os.path.join(run_dir, RESULTS_DEFAULT_FILENAME)
@@ -245,8 +249,8 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
             run_dir=run_dir,
             train_window_size=train_window_size,
             val_window_size=val_window_size,
-            start_date=start_date,
-            end_date=end_date,
+            val_start_date=val_start_date,
+            n_folds=n_folds,
         )
         results_iter.append(results)
         runtime_iter = timer() - runtime_iter
@@ -267,8 +271,8 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
 if __name__ == '__main__':
     results_iter = cv_opt_driver(train_window_size=pd.to_timedelta('260w'),
                                  val_window_size=pd.to_timedelta('26w'),
-                                 start_date=pd.to_datetime('2001-01-01'),
-                                 end_date=pd.to_datetime('2008-01-01'),
+                                 val_start_date=pd.to_datetime('2006-01-01'),
+                                 n_folds=4,
                                  StrategyRunner=WeeklyRotationRunner,
                                  output_metric=YIELD,  # YIELD, SHARPE, SORTINO
                                  max_lookback=200,
