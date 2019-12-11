@@ -12,13 +12,25 @@ import skopt
 from joblib import Parallel, delayed
 
 from exp import CHKPT_DEFAULT_FILE, SEED, RESULTS_DIR, YIELD, SHARPE, SORTINO, BYIELD, BSHARPE, BSORTINO, TRAIN_PREFIX, \
-    VAL_PREFIX, RESULTS_DEFAULT_FILENAME, LOG_DEFAULT_FILENAME
+    VAL_PREFIX, RESULTS_DEFAULT_FILENAME, LOG_DEFAULT_FILENAME, DEFAULT_OPTIMIZER
 from exp.reporting import plot_strategy_cv_convergence
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
+
+OPTIMIZER_FUNCTION = {
+    'forest': skopt.forest_minimize,
+    'GBRT': skopt.gbrt_minimize,
+    'GP': skopt.gp_minimize,
+}
+OPTIMIZER_KWARGS = {
+    'forest': dict(base_estimator='ET', acq_func='LCB'),
+    'GBRT': dict(base_estimator=None, acq_func='LCB', acq_optimizer='auto'),
+    'GP': dict(base_estimator=None, acq_func='gp_hedge', acq_optimizer='auto'),
+}
 
 
 def train_strategy(
         StrategyRunner=WeeklyRotationRunner,
+        optimizer=DEFAULT_OPTIMIZER,
         train_start=pd.to_datetime('2019-01-31'),
         train_end=pd.to_datetime('2019-10-31'),
         val_start=pd.to_datetime('2018-01-01'),
@@ -52,17 +64,16 @@ def train_strategy(
         y0 = None
         n_random_starts = n_rand
 
-    # hpo_results = skopt.forest_minimize(
-    # hpo_results = skopt.gbrt_minimize(
-    hpo_results = skopt.gp_minimize(
+    optimizer_function = OPTIMIZER_FUNCTION[optimizer]
+    optimizer_kwargs = OPTIMIZER_KWARGS[optimizer]
+    hpo_results = optimizer_function(
         func=runner.skopt_func, dimensions=dimensions_list,
         n_calls=n_calls, n_random_starts=n_random_starts,
-        # base_estimator='ET', acq_func='LCB,
-        # base_estimator=None, acq_func='LCB', acq_optimizer='auto',
-        base_estimator=None, acq_func='gp_hedge', acq_optimizer='auto',
         x0=x0, y0=y0, random_state=SEED, verbose=verbose,
         callback=[checkpoint_saver],
-        n_points=10000, xi=0.01, kappa=1.96, n_jobs=1)
+        n_points=10000, xi=0.01, kappa=1.96, n_jobs=1,
+        **optimizer_kwargs,
+    )
 
     if verbose:
         logging.info(f'Optimal yield is: {hpo_results.fun} at parameters {hpo_results.x}')
@@ -132,6 +143,7 @@ def train_strategy_driver(i, n_folds, kwargs,
 
 def cross_validate_strategy(
         StrategyRunner=WeeklyRotationRunner,
+        optimizer=DEFAULT_OPTIMIZER,
         max_lookback=200,
         n_calls=10,
         n_rand=5,
@@ -147,6 +159,7 @@ def cross_validate_strategy(
 ):
     kwargs = dict(
         StrategyRunner=StrategyRunner,
+        optimizer=optimizer,
         max_lookback=max_lookback,
         n_calls=n_calls,
         n_rand=n_rand,
@@ -180,6 +193,7 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
                   val_start_date=pd.to_datetime('2001-01-01'),
                   n_folds=1,
                   StrategyRunner=WeeklyRotationRunner,
+                  optimizer=DEFAULT_OPTIMIZER,
                   output_metric=YIELD,  # YIELD, SHARPE, SORTINO
                   max_lookback=200,
                   n_iters=2,
@@ -239,6 +253,7 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
 
         results = cross_validate_strategy(
             StrategyRunner=StrategyRunner,
+            optimizer=optimizer,
             max_lookback=max_lookback,
             n_calls=n_calls,
             n_rand=n_rand if i == 0 else 0,
@@ -269,16 +284,17 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
 
 
 if __name__ == '__main__':
-    results_iter = cv_opt_driver(train_window_size=pd.to_timedelta('260w'),
+    results_iter = cv_opt_driver(train_window_size=pd.to_timedelta('520w'),
                                  val_window_size=pd.to_timedelta('26w'),
-                                 val_start_date=pd.to_datetime('2006-01-01'),
+                                 val_start_date=pd.to_datetime('2011-01-01'),
                                  n_folds=4,
                                  StrategyRunner=WeeklyRotationRunner,
+                                 optimizer='GBRT',
                                  output_metric=YIELD,  # YIELD, SHARPE, SORTINO
                                  max_lookback=200,
-                                 n_iters=10,
+                                 n_iters=20,
                                  n_calls=10,
                                  n_rand=10,
                                  resume=False,
                                  verbose=False,
-                                 n_jobs=-1)
+                                 n_jobs=2)
