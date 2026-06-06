@@ -21,7 +21,7 @@ QPM = int(os.environ['AV_RQM'])
 QPS = 10
 
 AV_QUERY_DATA = {
-    "function": "TIME_SERIES_DAILY_ADJUSTED",
+    "function": "TIME_SERIES_DAILY_FULL",
     "symbol": "MSFT",
     "outputsize": "full",
     "datatype": "csv",
@@ -78,7 +78,7 @@ def get_universe_prices(symbols, prices={}, save_file=None, save_frequency=QPS):
 
     return updated_prices
 
-
+Changes
 def save_prices_dict(prices, pkl_file=SP500_PKL):
     with open(pkl_file, 'wb') as file:
         pickle.dump(prices, file)
