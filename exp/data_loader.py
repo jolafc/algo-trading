@@ -11,6 +11,20 @@ from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, CLOSE_COLUMN, DIVIDENT
 
 def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_idx=None, debug=False, impute=None,
                 verbose=True):
+    """Pivot a `{ticker: per-ticker DataFrame}` dict into one wide feature DataFrame.
+
+    Args:
+        prices_dict: output of `data_getter.load_pickled_dict`. Values that are None are dropped.
+        column: which AV column to extract (see exp/default_parameters.py).
+        start_idx, end_idx: optional integer slice on the resulting index.
+        debug: if True, write a Nans-per-day plot to results/ and log NaN counts per ticker.
+        impute: 'pad' to forward-fill NaNs, else no imputation.
+        verbose: log a one-line summary.
+
+    Returns:
+        Wide DataFrame: index=DatetimeIndex (ascending), columns=tickers, dtype=float64 (or int for
+        volume). See doc/data_schema.md §2.
+    """
     prices_dict_clean = {k: v for k, v in prices_dict.items() if v is not None}
 
     feature_df = [df[column].rename(k) for k, df in prices_dict_clean.items()]
@@ -52,6 +66,22 @@ def impute_time_series(df, method=None):
 
 def slice_backtesting_window(features={}, start_date_requested=None, end_date_requested=None, lookback=None,
                              verbose=True):
+    """Clip every feature DataFrame to `[start - lookback, end]` and return the clipped dict.
+
+    The lookback prefix lets strategies compute rolling indicators starting on `start_date_requested`.
+    All frames in `features` must share an index; the helper asserts this. The actual start/end may
+    differ from the requested ones if those dates aren't in the trading calendar — the resolved
+    bounds are returned as the second tuple element.
+
+    Args:
+        features: dict[feature_name -> wide DataFrame].
+        start_date_requested, end_date_requested: bracketing dates (inclusive).
+        lookback: number of additional rows to keep before `start_date_requested`.
+        verbose: log the adjusted window.
+
+    Returns:
+        (features_sliced, (start_date_actual, end_date_actual))
+    """
     assert all([isinstance(feature, pd.DataFrame) for feature in features.values()]), \
         f'Passed features must all be pd.DataFrames!'
     indexes = [df.index for df in features.values()]

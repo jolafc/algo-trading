@@ -6,11 +6,36 @@ from exp.default_parameters import DEFAULT_START_BALANCE, POSITIONS_COLUMNS, TRA
 
 
 class Backtesting(object):
+    """Replays a strategy's positions through a price history and tracks cash, P&L, and trades.
+
+    Usage:
+        bt = Backtesting(start_balance=100_000).fit(strategy, prices, dates)
+        trades_df, positions_df, errors_df = bt.get_trades()
+        unrealized_pl = bt.get_unrealized_pl()
+
+    See doc/data_schema.md for the exact shape of the DataFrames returned.
+    """
 
     def __init__(self, start_balance=DEFAULT_START_BALANCE):
         self.start_balance = start_balance
 
     def fit(self, strategy, prices, dates=None, low=None, high=None):
+        """Iterate over `dates`, ask the strategy for holdings, simulate fills, accumulate P&L.
+
+        Args:
+            strategy: object exposing `predict(date) -> list[ticker]` and `price_min` attribute.
+                See doc/data_schema.md §10 for the full strategy contract.
+            prices: wide DataFrame, index=dates, columns=tickers, values=execution price.
+            dates: iterable of trade dates; defaults to `prices.index`.
+            low: optional DataFrame, same shape as `prices`. When provided, sells fill at the low
+                (conservative). NaN at a sell date means delisting — the position is unwound at
+                the buy price (zero P&L) and recorded in `errors_df`.
+            high: optional DataFrame, same shape as `prices`. When provided, buys fill at the high
+                (conservative). NaN at a buy date raises an assertion — buys can't be modeled.
+
+        Asserts two end-of-run invariants on the final balance (transactions tally and P&L-derived
+        balance). Returns self.
+        """
         if dates is None:
             dates = prices.index
         positions_df = pd.DataFrame(columns=POSITIONS_COLUMNS)
@@ -84,7 +109,9 @@ class Backtesting(object):
         return self
 
     def get_trades(self):
+        """Return (trades_df, positions_df, errors_df). Only valid after `fit`."""
         return self.trades_df, self.positions_df, self.errors_df
 
     def get_unrealized_pl(self):
+        """Return the per-date unrealized P&L Series. Only valid after `fit`."""
         return self.unrealized_pl

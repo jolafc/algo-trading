@@ -43,6 +43,24 @@ def train_strategy(
         chkpt_file=CHKPT_DEFAULT_FILE,
         verbose=True,
 ):
+    """One Bayesian-optimization run on the train window, then evaluate on the val window.
+
+    Args:
+        StrategyRunner: class implementing the runner contract (see doc/ARCHITECTURE.md).
+        optimizer: one of 'forest', 'GBRT', 'GP' (see OPTIMIZER_FUNCTION / OPTIMIZER_KWARGS).
+        train_start, train_end: HPO objective is computed on this window.
+        val_start, val_end: best params are re-evaluated here; metrics are returned but don't drive optimization.
+        max_lookback: structural — how much history to preload before train_start. Bump if you add longer indicators.
+        n_calls: skopt evaluations.
+        n_rand: random-seed evaluations before the surrogate kicks in. Ignored on resume.
+        output_metric: metric key the optimizer targets (sign comes from `runner.signs`).
+        resume: if True and chkpt_file exists, seed skopt with prior x_iters / func_vals.
+        chkpt_file: per-fold skopt checkpoint path.
+        verbose: passed to the runner and to skopt.
+
+    Returns:
+        (train_metrics, val_metrics, optimized_parameters) where the metrics are full metric dicts.
+    """
     run_dir = os.path.dirname(chkpt_file)
     runner = StrategyRunner(start_date_requested=train_start,
                             end_date_requested=train_end,
@@ -202,6 +220,34 @@ def cv_opt_driver(train_window_size=pd.to_timedelta('52w'),
                   resume: Union[str, bool] = False,
                   verbose=False,
                   n_jobs=-1):
+    """Top-level tuning driver: repeated walk-forward CV with checkpointing and convergence plots.
+
+    Creates (or resumes) a run directory `results/run_<metric>_<timestamp>/` containing the log,
+    per-fold skopt checkpoints, `results_iter.pkl`, and convergence PNGs. See doc/ARCHITECTURE.md
+    for the full call chain and doc/hpo_notes.md for sizing guidance.
+
+    Args:
+        train_window_size, val_window_size: walk-forward window sizes (pd.Timedelta).
+        val_start_date: anchor for fold 0's validation window. Fold i covers
+            train=[val_start + i*val_window - train_window, val_start + i*val_window],
+            val  =[val_start + i*val_window,                val_start + (i+1)*val_window].
+        n_folds: number of walk-forward folds (parallelized across joblib workers).
+        StrategyRunner: class implementing the runner contract.
+        optimizer: 'forest' | 'GBRT' | 'GP'.
+        output_metric: metric the optimizer minimizes (signed by runner.signs).
+        max_lookback: structural — history loaded before each train window.
+        n_iters: outer rounds. Each round adds `n_calls` skopt evaluations per fold; rounds
+            after the first run with `n_rand=0` (resume the prior surrogate).
+        n_calls: skopt evaluations per fold per round.
+        n_rand: random-seed evaluations on the very first round only.
+        resume: True to resume the most recent matching run; pass a run-dir name to pick a specific one.
+        verbose: enable per-evaluation logging. Asserts n_jobs=1 (joblib workers can't share the logger).
+        n_jobs: joblib parallelism over folds. Use -1 for all cores.
+
+    Returns:
+        list[DataFrame], one per iteration, each with `n_folds` rows of train/val metrics.
+        Shape documented in doc/data_schema.md §9.
+    """
     assert (not verbose) or (n_jobs == 1), \
         f'Verbose logging only available for sequential runs; please either set verbose=False or n_jobs=1'
 

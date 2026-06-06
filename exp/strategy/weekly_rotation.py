@@ -141,6 +141,19 @@ class WeelkyRotationStrategy(BaseEstimator):
 
 
 class WeeklyRotationRunner(object):
+    """Runner wrapping "load data → build strategy → backtest → report" for one hyperparameter point.
+
+    Callable: `runner(**params)` returns the full metrics dict (when `output_metric is None`) or
+    a single metric value. `skopt_func(x)` adapts the call into the form skopt expects (positional
+    list of hyperparameters, signed for minimization via `signs`).
+
+    Reconfigurable between runs by mutating `start_date_requested` / `end_date_requested` — this is
+    how `train_strategy` reuses one runner for both the train and val windows.
+
+    See doc/hpo_notes.md for the search-space design and doc/ARCHITECTURE.md for how this slots
+    into the tuning driver.
+    """
+
     signs = {PL: -1,
              YIELD: -1,
              SHARPE: -1,
