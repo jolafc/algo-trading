@@ -22,6 +22,7 @@ Each layer has one responsibility:
 
 | Layer | File | Responsibility |
 |---|---|---|
+| Data ingest | `exp/data_getter.py` | yfinance pulls per ticker, locally compute `adjusted_close`, pickle to `data/sp500.pkl` |
 | Tuning driver | `exp/optimization.py` | Multi-round CV loop, log/checkpoint/resume, convergence plots |
 | Cross-validation | `exp/optimization.py` | Build walk-forward folds, parallelize via joblib |
 | Single-fold trainer | `exp/optimization.py` | One Bayesian-opt run + best-params evaluation on val window |

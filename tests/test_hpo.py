@@ -8,6 +8,11 @@ from exp.optimization import train_strategy, cv_opt_driver
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
 CHKPT_TEST_FILE = os.path.join(RESULTS_DIR, 'checkpoint_test.pkl')
+
+# NOTE: these references were captured against the legacy Alpha Vantage adjusted-close data.
+# After the migration to yfinance + locally-computed adjusted_close (see exp/data_getter.py),
+# the underlying prices differ slightly and these constants must be re-baselined by running
+# this test, capturing the actual yields, and updating below.
 REFERENCE_TRAIN_YIELD = 0.46299178593687473
 REFERENCE_VAL_YIELD = -0.011870411339345141
 REFERENCE_VYIELD = 0.22689941969756694

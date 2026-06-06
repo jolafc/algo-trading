@@ -4,6 +4,10 @@ import pandas as pd
 from exp import YIELD, SHARPE
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
+# NOTE: these references were captured against the legacy Alpha Vantage adjusted-close data.
+# After the migration to yfinance + locally-computed adjusted_close (see exp/data_getter.py),
+# the underlying prices differ slightly and these constants must be re-baselined by running
+# this test, capturing the actual results[YIELD] / results[SHARPE] values, and updating below.
 REFERENCE_YIELD = 0.17253136849657844
 REFERENCE_SHARPE = 1.1567442855142187
 

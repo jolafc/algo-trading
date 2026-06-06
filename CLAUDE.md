@@ -1,14 +1,14 @@
 # Repo guide for Claude
 
-Backtesting framework for long-only US equity trading strategies. Historical daily prices come from the Alpha Vantage API; the implemented strategy is a weekly rotation on the S&P 500 ("§8: Weekly rotation" from *The 30-Minute Stock Trader*). Strategy hyperparameters are tuned via Bayesian optimization (`scikit-optimize`) with walk-forward cross-validation.
+Backtesting framework for long-only US equity trading strategies. Historical daily prices come from Yahoo Finance via `yfinance` (free, no API key); the implemented strategy is a weekly rotation on the S&P 500 ("§8: Weekly rotation" from *The 30-Minute Stock Trader*). Strategy hyperparameters are tuned via Bayesian optimization (`scikit-optimize`) with walk-forward cross-validation.
 
 ## Environment
 
-- Python 3.8, conda env `trading` defined in `environment.yaml` (pandas, scikit-learn, scikit-optimize, matplotlib, requests, `ta`, tensorflow).
-- Two env vars are required at import time of `exp/data_getter.py`:
-  - `AV_KEY` — Alpha Vantage API key
-  - `AV_RQM` — Alpha Vantage requests-per-minute quota (used as throttle limit)
-- Run tests with `pytest` from the repo root. `test_av.py` hits the live API; `test_weekly_rotation.py` and `test_hpo.py` need `data/sp500.pkl` (built by `data_getter.py`) and assert on hard-coded reference yields/sharpe ratios.
+- Python 3.8, conda env `trading` defined in `environment.yaml` (pandas, scikit-learn, scikit-optimize, matplotlib, requests, `ta`, `yfinance`, tensorflow).
+- No API key required. Optional env vars consumed by `exp/data_getter.py`:
+  - `YF_SLEEP` (default `0.2`) — seconds to sleep between yfinance calls; raise if you hit Yahoo throttling.
+  - `YF_SAVE_EVERY` (default `10`) — pickle the in-progress dict every N tickers during a download.
+- Run tests with `pytest` from the repo root. `test_av.py` and `test_adjustment.py` hit the live yfinance API; `test_weekly_rotation.py` and `test_hpo.py` need `data/sp500.pkl` (built by `data_getter.py`) and assert on hard-coded reference yields/Sharpe ratios. The reference constants in those two tests still hold values from the legacy Alpha Vantage data — they must be re-baselined after the first fresh download from yfinance (the test files have inline notes about this).
 
 ## Top-level layout
 
@@ -17,7 +17,7 @@ algo-trading/
 ├── data/              # constituents.csv (S&P 500 universe) + sp500.pkl (cached price data, gitignored)
 ├── exp/               # All production code
 │   ├── __init__.py        # Paths, seed, metric/column name constants
-│   ├── data_getter.py     # Alpha Vantage API client + pickle cache for SP500 history
+│   ├── data_getter.py     # yfinance client + locally-computed adjusted_close + pickle cache for SP500 history
 │   ├── data_loader.py     # Build per-feature DataFrames, NaN handling, dividend/split adjustment
 │   ├── backtesting.py     # Backtesting class: replays a strategy's positions, tracks P&L
 │   ├── metrics.py         # IB fees, notional sizing, P&L, annualized yield, Sharpe, Sortino
@@ -54,7 +54,7 @@ algo-trading/
 
 ### Data flow
 
-1. `data_getter.get_sp500_pkl()` queries Alpha Vantage `TIME_SERIES_DAILY_FULL` for every symbol in `data/constituents.csv`, throttled by `AV_RQM`, and pickles a `dict[symbol -> DataFrame]` to `data/sp500.pkl`.
+1. `data_getter.get_sp500_pkl()` queries yfinance once per symbol in `data/constituents.csv` (raw OHLCV + dividends + splits), reshapes the response to match the legacy AV per-ticker DataFrame columns, then calls `compute_adjusted_close` to fill `adjusted_close` locally. Pickles a `dict[symbol -> DataFrame]` to `data/sp500.pkl`.
 2. `data_loader.get_feature(prices_dict, column=...)` reshapes that into a wide `DataFrame` (index=dates, columns=tickers) per OHLCV/dividend/split feature.
 3. `data_loader.slice_backtesting_window(features, start, end, lookback)` clips all feature frames to the requested window plus a lookback prefix.
 
@@ -98,7 +98,8 @@ Every `cv_opt_driver` invocation creates `results/run_<metric>_<timestamp>/` con
 - **Metric sign convention**: all metrics in `WeeklyRotationRunner.signs` map to `-1` because `skopt` minimizes. Any new metric you add to a runner needs an entry there.
 - **`exp/__init__.py` side effect**: importing anything from `exp` creates `data/` and `results/` if missing.
 - **Verbose + parallel is forbidden**: `cv_opt_driver` asserts `n_jobs == 1` when `verbose=True` (joblib workers can't share the logger).
-- **AV API quota**: `data_getter.py` enforces `AV_RQM` requests/minute by sleeping to fill out a 61-second window. The "10 QPS" constant `QPS` is actually used as a *save frequency* (pickle every N symbols), not a rate limit — naming is misleading.
+- **yfinance throttling**: there's no published rate limit but Yahoo throttles on burst traffic. `data_getter.py` sleeps `YF_SLEEP` seconds between calls (default 0.2s); raise this if you start seeing empty/None responses.
+- **`adjusted_close` is computed, not fetched**: `compute_adjusted_close` runs after the per-ticker pulls and writes `adjusted_close` into each DataFrame. Logic mirrors `DividentsAdjustment` + `SplitsAdjustment` in `data_loader.py` but packaged per-ticker. `tests/test_adjustment.py` cross-checks against yfinance's native `Adj Close` on a small sample.
 - **NaN sell prices**: `Backtesting.fit` treats `NaN` on a sell as "delisted/missing" and unwinds the position at the buy price (zero P&L), recording it in `errors_df`. NaN on a buy raises an assertion.
 - **Adjusted execution price**: `WeeklyRotationRunner` builds `EXECUTION_PRICE_COLUMN` as `(open * adj_close/close).shift(-1)` — i.e. trades signaled on day *t* execute at the adjusted open of day *t+1*. Falls back to adjusted close when next-day open is missing.
 - **`deprecated/`** uses Zipline and Quandl — predates the current AV-based pipeline. Don't pattern-match new code on it.

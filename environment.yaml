@@ -15,3 +15,7 @@ dependencies:
   - pip:
       - tensorflow
       - ta
+      # yfinance >=1.2.0 is required: earlier versions (incl. 0.2.x) use a cookie/crumb
+      # flow that Yahoo's edge now rate-limits to HTTP 429 immediately. 1.2.0 reworked
+      # auth and works against the current Yahoo API.
+      - yfinance>=1.2.0

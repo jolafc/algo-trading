@@ -1,26 +1,22 @@
 # algo-trading
 
-Backtesting framework for long-only US equity strategies using Alpha Vantage historical price data. Includes one built-in strategy (weekly rotation on the S&P 500), a fee-aware backtester, and a Bayesian-optimization tuning loop with walk-forward cross-validation.
+Backtesting framework for long-only US equity strategies using free historical price data from Yahoo Finance (via `yfinance`). Includes one built-in strategy (weekly rotation on the S&P 500), a fee-aware backtester, and a Bayesian-optimization tuning loop with walk-forward cross-validation.
 
 ## Quick start
 
 ```bash
-# 1. Create and activate the conda env
+# 1. Create and activate the conda env (installs yfinance via pip)
 conda env create -f environment.yaml
 conda activate trading
 
-# 2. Export your Alpha Vantage credentials
-export AV_KEY=<your_alphavantage_api_key>
-export AV_RQM=<your_requests_per_minute_quota>
-
-# 3. Verify the setup
+# 2. Verify the setup (hits yfinance for a smoke test + small adjustment check)
 pytest
 
-# 4. Run the end-to-end example (downloads SP500 history on first run, then backtests + tunes)
+# 3. Run the end-to-end example (downloads SP500 history on first run, then backtests + tunes)
 python examples/run_end_to_end.py
 ```
 
-The S&P 500 price download can take an hour on a free-tier AV key — it caches to `data/sp500.pkl` and subsequent runs reuse it.
+No API key required. The S&P 500 price download takes ~30–60 min — it caches to `data/sp500.pkl` and subsequent runs reuse it. Adjusted close is computed locally from raw close + dividends + splits; `tests/test_adjustment.py` cross-checks it against Yahoo's `Adj Close` on a small sample.
 
 ## Further documentation
 

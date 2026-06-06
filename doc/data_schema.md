@@ -2,25 +2,38 @@
 
 The codebase passes several untyped pandas structures between modules. This document pins down the exact shape, index, columns, and dtype expected at each handoff. If you're touching `Backtesting`, a new strategy, or a new metric, read this first.
 
-## 1. Alpha Vantage per-ticker DataFrame
+## 1. Per-ticker DataFrame (yfinance-sourced)
 
-Produced by `data_getter.av_query(symbol)` and stored as values in the `data/sp500.pkl` `dict[symbol -> DataFrame]`.
+Produced by `data_getter.yf_query(symbol)` and stored as values in the `data/sp500.pkl` `dict[symbol -> DataFrame]`. Column shape is preserved from the legacy Alpha Vantage layout so downstream code (data_loader, strategies, backtester) is unchanged.
 
 | Column | Dtype | Notes |
 |---|---|---|
-| (index) `timestamp` | `datetime64[ns]` | Daily, descending order as returned by AV; not reindexed to a business calendar |
+| (index) `timestamp` | `datetime64[ns]` | Daily, ascending, tz-naive |
 | `open` | float64 | Raw |
 | `high` | float64 | Raw |
 | `low` | float64 | Raw |
 | `close` | float64 | Raw |
-| `adjusted_close` | float64 | Adjusted for splits + dividends |
-| `volume` | int64 | Shares |
-| `dividend_amount` | float64 | Per-share dividend on that date (0 otherwise) |
-| `split_coefficient` | float64 | Split ratio on that date (1.0 otherwise) |
+| `adjusted_close` | float64 | Computed locally by `compute_adjusted_close` — **dividend adjustment only**, because yfinance's `close` already incorporates Yahoo's split adjustments (see "Adjusted-close convention" below) |
+| `volume` | float64 | Shares (cast from yfinance's int) |
+| `dividend_amount` | float64 | Per-share dividend on ex-date (0 otherwise). Already restated in current-share terms (i.e. divided by all subsequent split factors), to match the split-adjusted `close`. |
+| `split_coefficient` | float64 | Split factor on date (1.0 otherwise). yfinance reports 0.0 for "no split"; `yf_query` remaps to 1.0. **Informational only with the yfinance source** — `compute_adjusted_close` does not consume it. |
+
+### Adjusted-close convention (important)
+
+Yahoo's API behaviour differs from the legacy Alpha Vantage shape:
+
+| Source | `close` is... | `Adj Close` / `adjusted_close` adds... |
+|---|---|---|
+| Alpha Vantage (legacy, premium) | Fully unadjusted | Splits + dividends |
+| yfinance (current) | Split-adjusted | Dividends only |
+
+That means with yfinance: applying `SplitsAdjustment` on top of `close` would double-count splits. `compute_adjusted_close` therefore applies only the dividend factor. `SplitsAdjustment` in `exp/data_loader.py` is retained for the legacy AV data path (and as a reference for the math) but is NOT used at ingest time. `tests/test_adjustment.py` pins this by cross-checking our computed `adjusted_close` against Yahoo's native `Adj Close` to <1e-4 relative error.
 
 Column constants live in `exp/default_parameters.py` (`OPEN_COLUMN`, `CLOSE_COLUMN`, `ADJUSTED_CLOSE_COLUMN`, `VOLUME_COLUMN`, `DIVIDENT_COLUMN`, `SPLIT_COLUMN`).
 
-The pickle is `{ticker: DataFrame or None}`. Failed queries store `None`; `data_loader.get_feature` filters them out.
+The pickle is `{ticker: DataFrame or None}`. Failed queries store `None`; `data_loader.get_feature` filters them out. `adjusted_close` is populated by a second pass (`compute_adjusted_close`) after all per-ticker pulls complete.
+
+Symbol normalization: tickers with dots (e.g. `BRK.B`) are mapped to dashes (`BRK-B`) for the yfinance call, but the original symbol is used as the dict key and as the DataFrame column name in the wide frames.
 
 ## 2. Wide per-feature DataFrame
 

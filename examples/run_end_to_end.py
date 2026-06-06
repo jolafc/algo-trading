@@ -2,10 +2,10 @@
 
 Prerequisites:
     - conda env `trading` is active (see environment.yaml)
-    - env vars AV_KEY and AV_RQM are set
     - run from the repo root: `python examples/run_end_to_end.py`
 
-This script is intentionally small and prints what it's doing at each step.
+No API key required (yfinance). This script is intentionally small and prints what it's doing
+at each step.
 """
 import logging
 import os
@@ -24,13 +24,13 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 def step_1_download_data():
     """Pull historical daily prices for every S&P 500 constituent into data/sp500.pkl.
 
-    Skips the download if the pickle already exists. The download is throttled to
-    AV_RQM requests/minute and can take an hour or more on a fresh run.
+    Skips the download if the pickle already exists. Throttled by `YF_SLEEP` seconds between
+    yfinance calls (default 0.2s); a fresh full SP500 run takes ~30–60 minutes.
     """
     if os.path.exists(SP500_PKL):
         print(f'Found existing price cache at {SP500_PKL} — skipping download.')
         return
-    print(f'Downloading S&P 500 history from Alpha Vantage to {SP500_PKL}...')
+    print(f'Downloading S&P 500 history from yfinance to {SP500_PKL}...')
     get_sp500_pkl(update=True)
 
 
