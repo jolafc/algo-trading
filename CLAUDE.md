@@ -110,12 +110,12 @@ Every `cv_opt_driver` invocation creates `results/run_<metric>_<timestamp>/` con
 - New metric: add the constant to `exp/__init__.py`, compute it in `exp/metrics.py`, plumb it through `reporting.make_backtesting_report`'s `results` dict, and add the sign to the runner's `signs`.
 - New feature/indicator: add the AV column constant in `default_parameters.py`, load via `data_loader.get_feature` inside the runner's `__call__`, then consume in the strategy's `fit`.
 
-## Other docs worth adding (suggestions)
+## Companion documentation
 
-These would be valuable but I haven't written them — happy to do so on request:
+When the user's task touches any of these, read the relevant doc first — they capture detail intentionally kept out of this file:
 
-- **ARCHITECTURE.md** with a sequence diagram of `cv_opt_driver → cross_validate_strategy → train_strategy → Runner → Strategy → Backtesting → reporting`. The control flow spans many files and is hard to hold in your head.
-- **Docstring pass on the public surface** (`Backtesting`, `WeeklyRotationRunner`, `cv_opt_driver`, `get_feature`, `slice_backtesting_window`) — currently there are none, so signatures are the only documentation.
-- **A small `examples/` script** that runs an end-to-end backtest from a fresh `sp500.pkl` so newcomers don't have to reverse-engineer it from `__main__` blocks.
-- **`docs/data_schema.md`** documenting the exact columns/dtypes of: the AV per-ticker DataFrame, the wide per-feature DataFrame, `positions_df`, `trades_df`, and the metrics dict. These are passed around untyped and are the easiest thing to get wrong.
-- **`docs/hpo_notes.md`** capturing the search-space rationale and the commented-out dimensions in `WeeklyRotationRunner.dimensions` (some are intentionally frozen — that intent should live somewhere durable).
+- **[`doc/ARCHITECTURE.md`](doc/ARCHITECTURE.md)** — sequence diagram of the full tuning-run control flow, walk-forward CV layout, resume semantics, results-dir contents.
+- **[`doc/data_schema.md`](doc/data_schema.md)** — exact columns/dtypes for every DataFrame passed between modules. Read before changing `Backtesting`, adding a metric, or adding a feature/indicator.
+- **[`doc/hpo_notes.md`](doc/hpo_notes.md)** — `WeeklyRotationRunner.dimensions` rationale (active + frozen), optimizer choice, sizing guidance for `cv_opt_driver`.
+- **[`examples/run_end_to_end.py`](examples/run_end_to_end.py)** — minimal end-to-end script (download → single backtest → 2-fold CV). Use this as the reference for "how is this thing supposed to be invoked" rather than the `__main__` blocks scattered through `exp/`.
+- **Inline docstrings** on `Backtesting`, `WeeklyRotationRunner`, `cv_opt_driver`, `train_strategy`, `get_feature`, `slice_backtesting_window` — the public surface is now documented at the signature level.
