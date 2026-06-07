@@ -118,5 +118,6 @@ When the user's task touches any of these, read the relevant doc first — they 
 - **[`doc/ARCHITECTURE.md`](doc/ARCHITECTURE.md)** — sequence diagram of the full tuning-run control flow, walk-forward CV layout, resume semantics, results-dir contents.
 - **[`doc/data_schema.md`](doc/data_schema.md)** — exact columns/dtypes for every DataFrame passed between modules. Read before changing `Backtesting`, adding a metric, or adding a feature/indicator.
 - **[`doc/hpo_notes.md`](doc/hpo_notes.md)** — `WeeklyRotationRunner.dimensions` rationale (active + frozen), optimizer choice, sizing guidance for `cv_opt_driver`.
+- **[`doc/TODO.md`](doc/TODO.md)** — known limitations and future work. The current universe is *current SP500 only* → results carry survivorship bias. Cite this caveat when reporting backtest yields/Sharpe/Sortino.
 - **[`examples/run_end_to_end.py`](examples/run_end_to_end.py)** — minimal end-to-end script (download → single backtest → 2-fold CV). Use this as the reference for "how is this thing supposed to be invoked" rather than the `__main__` blocks scattered through `exp/`.
 - **Inline docstrings** on `Backtesting`, `WeeklyRotationRunner`, `cv_opt_driver`, `train_strategy`, `get_feature`, `slice_backtesting_window` — the public surface is now documented at the signature level.
