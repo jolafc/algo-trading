@@ -105,7 +105,7 @@ class WeelkyRotationStrategy(BaseEstimator):
         price_masks = adj_close_prices > self.price_min
 
         # 4 - RSI(3) < 50
-        prices_rsi = adj_close_prices.apply(lambda x: ta.momentum.rsi(x, n=self.rsi_lookback))
+        prices_rsi = adj_close_prices.apply(lambda x: ta.momentum.rsi(x, window=self.rsi_lookback))
         rsi_masks = prices_rsi < self.rsi_threshold
 
         # Total masks 1-4
