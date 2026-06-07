@@ -76,17 +76,17 @@ def train_strategy(
         res = skopt.load(chkpt_file)
         x0 = res.x_iters
         y0 = res.func_vals
-        n_random_starts = 0
+        n_initial_points = 0
     else:
         x0 = None
         y0 = None
-        n_random_starts = n_rand
+        n_initial_points = n_rand
 
     optimizer_function = OPTIMIZER_FUNCTION[optimizer]
     optimizer_kwargs = OPTIMIZER_KWARGS[optimizer]
     hpo_results = optimizer_function(
         func=runner.skopt_func, dimensions=dimensions_list,
-        n_calls=n_calls, n_random_starts=n_random_starts,
+        n_calls=n_calls, n_initial_points=n_initial_points,
         x0=x0, y0=y0, random_state=SEED, verbose=verbose,
         callback=[checkpoint_saver],
         n_points=10000, xi=0.01, kappa=1.96, n_jobs=1,
