@@ -25,5 +25,5 @@ Detailed docs live in [`doc/`](doc/):
 - [`doc/ARCHITECTURE.md`](doc/ARCHITECTURE.md) — control flow from `cv_opt_driver` down to `Backtesting`, including a sequence diagram and the walk-forward CV layout.
 - [`doc/data_schema.md`](doc/data_schema.md) — exact columns, indices, and dtypes for every DataFrame passed between modules (per-ticker, wide per-feature, `positions_df`, `trades_df`, metrics dict, CV results).
 - [`doc/hpo_notes.md`](doc/hpo_notes.md) — search-space rationale, which dimensions are intentionally frozen, optimizer choice, and sizing guidance for tuning runs.
-- [`doc/TODO.md`](doc/TODO.md) — known limitations and future work. Most importantly: the universe is the *current* S&P 500 only, so backtest results carry survivorship bias. Read this before quoting yields/Sharpe from a run.
+- [`doc/TODO.md`](doc/TODO.md) — known limitations and future work, ranked by impact on the believability of backtest metrics. The dominant concerns are HPO selection bias, CV autocorrelation leakage, and transaction-cost realism — survivorship bias of the universe sits below them. Read this before quoting yields/Sharpe from a run.
 - [`CLAUDE.md`](CLAUDE.md) — repo-map and conventions cheat sheet, primarily aimed at Claude-assisted edits.
