@@ -4,9 +4,8 @@ import logging
 import pandas as pd
 from matplotlib import pyplot as plt
 
-from exp import PLT_FILE_FORMAT, RESULTS_DIR, SP500_PKL
-from exp.data_getter import load_pickled_dict
-from exp.default_parameters import ADJUSTED_CLOSE_COLUMN, CLOSE_COLUMN, DIVIDENT_COLUMN, SPLIT_COLUMN
+from exp import PLT_FILE_FORMAT, RESULTS_DIR
+from exp.default_parameters import ADJUSTED_CLOSE_COLUMN
 
 
 def get_feature(prices_dict, column=ADJUSTED_CLOSE_COLUMN, start_idx=None, end_idx=None, debug=False, impute=None,
@@ -106,95 +105,32 @@ def slice_backtesting_window(features={}, start_date_requested=None, end_date_re
     return features_sliced, (start_date, end_date)
 
 
-class DividentsAdjustment(object):
-    def __init__(self, dividents, display_interval=.01):
-        self.dividents = dividents
-        self.mask = (dividents != 0.) & (~dividents.isna())
+def dividend_adjust(close, dividends):
+    """Apply Yahoo-style dividend adjustment to a per-ticker close series.
 
-        self.n = dividents.shape[1]
-        if type(display_interval) is float:
-            self.display_interval = max(int(display_interval*self.n), 1)
-        else:
-            self.display_interval = display_interval
+    For each dividend ex-date d with amount D, all prices strictly before d are scaled by
+    (close[d-1] - D) / close[d-1]. The factor uses the running (already-adjusted) close at
+    d-1, but since dividends are spaced apart in practice the result is order-independent.
 
-    def __call__(self, prices):
-        ticker = prices.name
-        tdividents = self.dividents[ticker][self.mask[ticker]]
-        dates = tdividents.index
-        for date in dates:
-            i = prices.index.get_loc(date)
-            factor = (prices.iloc[i-1] - tdividents[date]) / prices.iloc[i-1]
-            prices.iloc[:i] = prices.iloc[:i] * factor
+    With yfinance-sourced data, `close` is already split-adjusted by Yahoo, so dividend
+    adjustment alone reconstructs Yahoo's `Adj Close` to ~1 ppm — verified by
+    tests/test_adjustment.py. Adding split adjustment on top would double-count.
 
-        i = list(self.dividents.columns).index(ticker)
-        if (i+1) % self.display_interval == 0:
-            logging.info(f'Adjusted ticker {i+1} / {self.n}')
+    Args:
+        close: pd.Series, per-ticker close prices, ascending DatetimeIndex.
+        dividends: pd.Series, per-share dividend on each ex-date (0 elsewhere), same index.
 
-
-class SplitsAdjustment(object):
-    def __init__(self, splits, display_interval=.01):
-        self.splits = splits
-        self.mask = (splits != 1.) & (~splits.isna())
-
-        self.n = splits.shape[1]
-        if type(display_interval) is float:
-            self.display_interval = max(int(display_interval*self.n), 1)
-        else:
-            self.display_interval = display_interval
-
-    def __call__(self, prices):
-        ticker = prices.name
-        tsplits = self.splits[ticker][self.mask[ticker]]
-        dates = tsplits.index
-        for date in dates:
-            i = prices.index.get_loc(date)
-            prices.iloc[:i] = prices.iloc[:i] / tsplits[date]
-
-        i = list(self.splits.columns).index(ticker)
-        if (i+1)%self.display_interval == 0:
-            logging.info(f'Adjusted ticker {i+1} / {self.n}')
-
-
-def price_adj_experiment(n=None, verbose=True):
-    data_by_ticker = load_pickled_dict(pkl_file=SP500_PKL)
-
-    adj_close = get_feature(data_by_ticker, column=ADJUSTED_CLOSE_COLUMN, debug=False, impute=False, verbose=False)
-    close = get_feature(data_by_ticker, column=CLOSE_COLUMN, debug=False, impute=False, verbose=False)
-    dividents = get_feature(data_by_ticker, column=DIVIDENT_COLUMN, debug=False, impute=False, verbose=False)
-    splits = get_feature(data_by_ticker, column=SPLIT_COLUMN, debug=False, impute=False, verbose=False)
-
-    close = close.iloc[:, :n]
-    adj_close = adj_close.iloc[:, :n]
-
-    man_close = close.copy()
-
-    dividents_adj = DividentsAdjustment(dividents=dividents)
-    man_close.apply(dividents_adj)
-
-    splits_adj = SplitsAdjustment(splits=splits)
-    man_close.apply(splits_adj)
-
-    if verbose:
-        rel_error_before = (close - adj_close).abs().sum(axis=0) / adj_close.sum(axis=0)
-        rel_error_before.name = 'Before'
-        rel_error_after = (man_close - adj_close).abs().sum(axis=0) / adj_close.sum(axis=0)
-        rel_error_after.name = 'After'
-        rel_errors = pd.concat([rel_error_after, rel_error_before], axis=1)
-        logging.info('')
-        logging.info(f'Summed abs errors, relative to the summed prices: ')
-        logging.info(rel_errors)
-        logging.info('')
-        logging.info(f'Totals abs. rel. errors (over all tickers): ')
-        logging.info(rel_errors.sum(axis=0))
-
-        resid = man_close - adj_close
-        pd.plotting.register_matplotlib_converters()
-        plt.figure()
-        plt.plot(resid)
-        plt.savefig(os.path.join(RESULTS_DIR, f'adj_prices_diff.png'))
-
-    return man_close
-
-
-if __name__ == '__main__':
-    price_adj_experiment(n=3)
+    Returns:
+        pd.Series of adjusted prices (a copy; `close` is not mutated).
+    """
+    adjusted = close.astype(float).copy()
+    for date in dividends[(dividends != 0.) & ~dividends.isna()].index:
+        i = adjusted.index.get_loc(date)
+        if i == 0:
+            continue
+        prev = adjusted.iloc[i - 1]
+        if pd.isna(prev) or prev == 0:
+            continue
+        factor = (prev - dividends.loc[date]) / prev
+        adjusted.iloc[:i] = adjusted.iloc[:i] * factor
+    return adjusted

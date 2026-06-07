@@ -27,7 +27,7 @@ Yahoo's API behaviour differs from the legacy Alpha Vantage shape:
 | Alpha Vantage (legacy, premium) | Fully unadjusted | Splits + dividends |
 | yfinance (current) | Split-adjusted | Dividends only |
 
-That means with yfinance: applying `SplitsAdjustment` on top of `close` would double-count splits. `compute_adjusted_close` therefore applies only the dividend factor. `SplitsAdjustment` in `exp/data_loader.py` is retained for the legacy AV data path (and as a reference for the math) but is NOT used at ingest time. `tests/test_adjustment.py` pins this by cross-checking our computed `adjusted_close` against Yahoo's native `Adj Close` to <1e-4 relative error.
+That means with yfinance: applying a split factor on top of `close` would double-count. The single adjustment routine — `data_loader.dividend_adjust(close, dividends)` — applies only the dividend factor; `compute_adjusted_close` in `exp/data_getter.py` is the dict-level wrapper that calls it per ticker at ingest time. `tests/test_adjustment.py` pins this by cross-checking our computed `adjusted_close` against Yahoo's native `Adj Close` to <1e-4 relative error.
 
 Column constants live in `exp/default_parameters.py` (`OPEN_COLUMN`, `CLOSE_COLUMN`, `ADJUSTED_CLOSE_COLUMN`, `VOLUME_COLUMN`, `DIVIDENT_COLUMN`, `SPLIT_COLUMN`).
 

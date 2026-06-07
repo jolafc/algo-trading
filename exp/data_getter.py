@@ -4,9 +4,8 @@ History: this module used to call Alpha Vantage's TIME_SERIES_DAILY_ADJUSTED (pr
 that endpoint became premium-only and the project lost its key, we switched to yfinance — free,
 no API key, single call per ticker returns OHLCV + dividends + splits. The per-ticker DataFrame
 shape (column names, index) is preserved so exp.data_loader and the strategies are unchanged.
-The `adjusted_close` column is computed locally from close + dividends + splits via
-`compute_adjusted_close` (logic identical to DividentsAdjustment / SplitsAdjustment in
-exp.data_loader).
+The `adjusted_close` column is computed locally from close + dividends via
+`compute_adjusted_close`, which delegates the per-ticker math to `data_loader.dividend_adjust`.
 """
 import logging
 import os
@@ -20,6 +19,7 @@ import pandas as pd
 import yfinance as yf
 
 from exp import CONST_CSV, SP500_PKL
+from exp.data_loader import dividend_adjust
 from exp.default_parameters import (
     ADJUSTED_CLOSE_COLUMN,
     CLOSE_COLUMN,
@@ -106,38 +106,20 @@ def get_universe_prices(symbols, prices={}, save_file=None, save_frequency=SAVE_
 
 
 def compute_adjusted_close(prices):
-    """Add `adjusted_close` to every per-ticker DataFrame in `prices` (dividend adjustment only).
+    """Populate `adjusted_close` on every per-ticker DataFrame in `prices`.
 
-    yfinance returns `Close` already split-adjusted (Yahoo bakes splits into the historical
-    OHLC), so this function applies only the dividend factor — same multiplicative logic as
-    `DividentsAdjustment` in exp.data_loader. Applying `SplitsAdjustment` on top of yfinance's
-    close would double-count splits; see `tests/test_adjustment.py` for the cross-check against
-    Yahoo's native `Adj Close`.
+    Per-ticker math lives in `data_loader.dividend_adjust`. This is just the dict-level
+    orchestrator: extract close + dividend series, delegate, write the result back.
+    yfinance's close is already split-adjusted by Yahoo, so dividend-only adjustment is
+    sufficient — the `split_coefficient` column stays populated for reference but is
+    intentionally not consumed (see `tests/test_adjustment.py`).
 
-    For each dividend ex-date d with amount D, all prices strictly before d are scaled by
-    (close[d-1] - D) / close[d-1]. The `split_coefficient` column on each DataFrame remains
-    populated (informational — when splits happened) but is intentionally NOT consumed here.
-
-    Mutates `prices` in place (adds the column to each DataFrame) and returns it. Tickers
-    whose value is None are skipped.
+    Mutates `prices` in place. Tickers whose value is None are skipped.
     """
-    for ticker, df in prices.items():
+    for df in prices.values():
         if df is None:
             continue
-        adjusted = df[CLOSE_COLUMN].astype(float).copy()
-
-        divs = df[DIVIDENT_COLUMN]
-        for date in divs[(divs != 0.) & ~divs.isna()].index:
-            i = adjusted.index.get_loc(date)
-            if i == 0:
-                continue
-            prev = adjusted.iloc[i - 1]
-            if pd.isna(prev) or prev == 0:
-                continue
-            factor = (prev - divs.loc[date]) / prev
-            adjusted.iloc[:i] = adjusted.iloc[:i] * factor
-
-        df[ADJUSTED_CLOSE_COLUMN] = adjusted
+        df[ADJUSTED_CLOSE_COLUMN] = dividend_adjust(df[CLOSE_COLUMN], df[DIVIDENT_COLUMN])
     return prices
 
 
