@@ -8,9 +8,13 @@ from exp.optimization import train_strategy, cv_opt_driver
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
 CHKPT_TEST_FILE = os.path.join(RESULTS_DIR, 'checkpoint_test.pkl')
-REFERENCE_TRAIN_YIELD = 0.46299178593687473
-REFERENCE_VAL_YIELD = -0.011870411339345141
-REFERENCE_VYIELD = 0.22689941969756694
+
+# Reference values captured against yfinance-sourced data with locally-computed adjusted_close
+# (see exp/data_getter.py). Re-baseline after any change that affects prices, fees, sizing,
+# adjustment logic, or the universe in data/constituents.csv.
+REFERENCE_TRAIN_YIELD = 0.4162698407381263
+REFERENCE_VAL_YIELD = 0.15400525944087973
+REFERENCE_VYIELD = 0.24726256814373657
 
 
 def test_cv_opt_driver():

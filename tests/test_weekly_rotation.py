@@ -4,8 +4,11 @@ import pandas as pd
 from exp import YIELD, SHARPE
 from exp.strategy.weekly_rotation import WeeklyRotationRunner
 
-REFERENCE_YIELD = 0.17253136849657844
-REFERENCE_SHARPE = 1.1567442855142187
+# Reference values captured against yfinance-sourced data with locally-computed adjusted_close
+# (see exp/data_getter.py). Re-baseline after any change that affects prices, fees, sizing,
+# adjustment logic, or the universe in data/constituents.csv.
+REFERENCE_YIELD = 0.2280376466332405
+REFERENCE_SHARPE = 1.177701669981055
 
 
 def test_weekly_rotation():
